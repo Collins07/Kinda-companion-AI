@@ -1,0 +1,6 @@
+{
+  "name": "Kinda Care AI - WhatsApp Companion for Child Development",
+  "description": "WhatsApp-based AI caregiver companion for child development, personalized RAG activities, long-term memory feedback, empathetic 5-brain architecture, and therapist escalation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
