@@ -19,6 +19,7 @@ export class KindaCareDataStore {
   private observations: Map<string, ObservationFeedback[]> = new Map();
   private appointments: Map<string, TherapistAppointment[]> = new Map();
   private nudges: Map<string, NudgeSchedule[]> = new Map();
+  private reportShares: Map<string, NonNullable<ProgressReport['sharedWithSpecialists']>> = new Map();
 
   constructor() {
     this.seedInitialData();
@@ -58,6 +59,8 @@ export class KindaCareDataStore {
       ],
       favoriteActivities: ['Color tiles puzzle', 'Water splash play', 'Animal sounds'],
       activeKit: 'Color & Shape Sensory Discovery Kit',
+      environmentContext: 'Home in Kiambu with living room rug and small veranda outside; prefers co-play with Mama.',
+      availableResources: ['Color tiles puzzle', 'Maize flour (unga) & baking tray', 'Plastic cups & water', 'Cloth / leso for peekaboo', 'Kitchen wooden spoons'],
       subscriptionTier: 'free',
       odpcConsent: {
         granted: true,
@@ -128,7 +131,7 @@ export class KindaCareDataStore {
             detectedIntent: 'Sensory aversion feedback on red tiles',
             caregiverTone: 'Affectionate & honest with Kenyan humor ("Hiyo bado... alizipangua")',
             caregiverMode: 'standard',
-            culturalContext: 'kenyan_sheng_swahili'
+            culturalContext: 'sheng_blended'
           },
           memoryBrain: {
             childId: 'child_joash',
@@ -141,6 +144,7 @@ export class KindaCareDataStore {
             ragMaterialsRetrieved: [
               { id: 'mat_color_desensitization', title: 'Sensory Ladder: Step-by-Step Color & Visual Tolerance', domain: 'sensory_play', relevanceScore: 0.96 }
             ],
+            recommendationSource: 'clinical_library',
             suggestedActivity: {
               title: 'Red Tile Peekaboo (Stage 2 Sensory Ladder)',
               domain: 'sensory_play',
@@ -149,7 +153,7 @@ export class KindaCareDataStore {
             }
           },
           engagementBrain: {
-            nudgeType: 'checkin',
+            nudgeType: 'responsive_dialogue',
             emotionalWarmthRating: 9
           },
           escalationBrain: {
@@ -235,6 +239,8 @@ export class KindaCareDataStore {
       ],
       favoriteActivities: ['Animal puzzles', 'Lego building blocks', 'Drawing cars'],
       activeKit: 'Safari Wooden Floor Puzzle',
+      environmentContext: 'Spacious family home with backyard compound; loves outdoor exploration.',
+      availableResources: ['Safari Wooden Floor Puzzle', 'Cardboard boxes', 'Bottle tops for counting', 'Crayons & manila paper', 'Fallen leaves & pebbles outside'],
       subscriptionTier: 'premium',
       subscriptionExpiry: '2026-12-31',
       odpcConsent: {
@@ -315,6 +321,8 @@ export class KindaCareDataStore {
         }
       ],
       favoriteActivities: ['Singing "Twinkle Twinkle"', 'Dancing to Kenyan children songs', 'Doll feeding'],
+      environmentContext: 'Apartment with musical household; no specialized sensory toys or puzzle kits yet—uses everyday household items and songs.',
+      availableResources: ['Sufuria & wooden spoon drums', 'Rolled cardboard tube microphone', 'Khanga / scarf for dancing', 'Picture storybooks', 'Plastic bowls & beans/maize shakers'],
       subscriptionTier: 'free',
       odpcConsent: {
         granted: true,
@@ -509,10 +517,30 @@ export class KindaCareDataStore {
         `Gradual red tile desensitization via cloth peekaboo play (3x this week)`,
         `Encourage creative storytelling and open-ended song rhythms during morning routine`,
         `Celebrate independent play attempts with descriptive praise`
-      ]
+      ],
+      generatedAt: new Date().toISOString(),
+      sharedWithSpecialists: this.reportShares.get(childId) || []
     };
 
     return report;
+  }
+
+  shareReportWithSpecialist(
+    childId: string,
+    therapistId: string,
+    therapistName: string,
+    handoffNote?: string
+  ) {
+    const existing = this.reportShares.get(childId) || [];
+    const entry = {
+      therapistId,
+      therapistName,
+      sharedAt: new Date().toISOString(),
+      handoffNote
+    };
+    existing.unshift(entry);
+    this.reportShares.set(childId, existing);
+    return existing;
   }
 }
 

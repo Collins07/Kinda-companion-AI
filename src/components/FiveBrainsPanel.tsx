@@ -71,7 +71,7 @@ export const FiveBrainsPanel: React.FC<FiveBrainsPanelProps> = ({
           </div>
         </div>
         <span className="text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono px-2 py-0.5 rounded">
-          gemini-3.8-flash
+          gemini-3.1-flash-lite
         </span>
       </div>
 
@@ -102,8 +102,14 @@ export const FiveBrainsPanel: React.FC<FiveBrainsPanelProps> = ({
               <span>{conversationBrain.detectedIntent}</span>
             </div>
             <div>
-              <span className="text-slate-400 font-medium">Cultural Dialect: </span>
-              <span className="text-emerald-700 dark:text-emerald-400 font-medium">Kenyan Swahili / Sheng Context Aware</span>
+              <span className="text-slate-400 font-medium">Language Mirrored: </span>
+              <span className="text-emerald-700 dark:text-emerald-400 font-medium uppercase">
+                {conversationBrain.culturalContext === 'swahili'
+                  ? 'Swahili'
+                  : conversationBrain.culturalContext === 'sheng_blended'
+                  ? 'Sheng / Kenyan Swahili-English Blend'
+                  : 'English'}
+              </span>
             </div>
           </div>
         </div>
@@ -169,10 +175,24 @@ export const FiveBrainsPanel: React.FC<FiveBrainsPanelProps> = ({
               <p className="text-[11px] text-slate-400 italic">General conversation; no deep RAG retrieval needed.</p>
             )}
 
+            {recommendationBrain.recommendationSource && recommendationBrain.recommendationSource !== 'none' && (
+              <div>
+                <span className="text-slate-400 font-medium">Source: </span>
+                <span className="text-amber-700 dark:text-amber-400 font-semibold">
+                  {recommendationBrain.recommendationSource.replace(/_/g, ' ').toUpperCase()}
+                </span>
+              </div>
+            )}
+
             {recommendationBrain.suggestedActivity && (
-              <div className="bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200 dark:border-amber-900 text-[11px]">
-                <strong className="text-amber-900 dark:text-amber-300">{recommendationBrain.suggestedActivity.title}</strong>
-                <p className="text-amber-800 dark:text-amber-200 mt-0.5">{recommendationBrain.suggestedActivity.parentTip}</p>
+              <div className="bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200 dark:border-amber-900 text-[11px] space-y-1">
+                <strong className="text-amber-900 dark:text-amber-300 block">{recommendationBrain.suggestedActivity.title}</strong>
+                <p className="text-amber-800 dark:text-amber-200">{recommendationBrain.suggestedActivity.parentTip}</p>
+                {recommendationBrain.suggestedActivity.resourcesUsed && recommendationBrain.suggestedActivity.resourcesUsed.length > 0 && (
+                  <p className="text-amber-700 dark:text-amber-300 font-medium">
+                    Resources: {recommendationBrain.suggestedActivity.resourcesUsed.join(', ')}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -186,7 +206,7 @@ export const FiveBrainsPanel: React.FC<FiveBrainsPanelProps> = ({
               <span>4. Engagement Brain</span>
             </span>
             <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full font-semibold">
-              NUDGE TIMING
+              ORGANIC CADENCE
             </span>
           </div>
 
@@ -196,8 +216,8 @@ export const FiveBrainsPanel: React.FC<FiveBrainsPanelProps> = ({
               <span className="font-semibold text-slate-800 dark:text-slate-100">{engagementBrain.emotionalWarmthRating || 9} / 10</span>
             </div>
             <div>
-              <span className="text-slate-400 font-medium">Nudge Frequency: </span>
-              <span>Contextual variations (Morning Mission, Caregiver Check-in, Evening Win)</span>
+              <span className="text-slate-400 font-medium">Check-in Cadence: </span>
+              <span>Organic & silence-triggered (not fixed daily morning/evening alarms)</span>
             </div>
             {engagementBrain.nudgeText && (
               <div className="bg-rose-50 dark:bg-rose-950/50 p-2 rounded border border-rose-200 dark:border-rose-900 text-[11px] text-rose-900 dark:text-rose-200 italic">

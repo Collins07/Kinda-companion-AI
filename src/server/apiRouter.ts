@@ -4,7 +4,11 @@
  */
 
 import { globalDataStore } from './dataStore';
-import { processCaregiverMessage } from './geminiService';
+import {
+  processCaregiverMessage,
+  generateOrganicCheckIn,
+  generateDynamicProgressReport
+} from './geminiService';
 import { handleWhatsAppIncomingWebhook, DEFAULT_VERIFY_TOKEN, sendOutboundWhatsAppMessage } from './whatsappWebhook';
 import { VERIFIED_EDUCATIONAL_MATERIALS } from './knowledgeBase';
 import { VERIFIED_THERAPISTS, findTherapists } from './therapistDirectory';
@@ -169,66 +173,35 @@ export async function handleApiRequest(
     return { status: 200, body: { materials: VERIFIED_EDUCATIONAL_MATERIALS } };
   }
 
-  // 9. Progress Report Generation
+  // 9. Progress Report Generation (Kinda Care & Specialist Side Only)
   if (pathname === '/api/report/generate' && method === 'POST') {
     const { childId } = bodyData || {};
-    const report = globalDataStore.generateProgressReport(childId || 'child_joash');
+    const report = await generateDynamicProgressReport(childId || 'child_joash');
     if (!report) return { status: 404, body: { error: 'Child not found for report generation' } };
     return { status: 200, body: { success: true, report } };
   }
 
-  // 10. Proactive Engagement Nudge Trigger
+  // 9b. Share Progress Report directly with a Specialist
+  if (pathname === '/api/report/share' && method === 'POST') {
+    const { childId, therapistId, therapistName, handoffNote } = bodyData || {};
+    if (!childId || !therapistId || !therapistName) {
+      return { status: 400, body: { error: 'childId, therapistId, and therapistName are required' } };
+    }
+    const shares = globalDataStore.shareReportWithSpecialist(childId, therapistId, therapistName, handoffNote);
+    return { status: 200, body: { success: true, sharedWithSpecialists: shares } };
+  }
+
+  // 10. Organic / Silence-Based Companion Check-In Trigger
   if (pathname === '/api/nudge/trigger' && method === 'POST') {
     const { childId, nudgeType } = bodyData || {};
-    const child = globalDataStore.getChild(childId || 'child_joash');
+    const targetChildId = childId || 'child_joash';
+    const child = globalDataStore.getChild(targetChildId);
     if (!child) return { status: 404, body: { error: 'Child not found' } };
 
-    let nudgeText = '';
-    if (nudgeType === 'morning_mission') {
-      nudgeText = `Good morning ${child.caregiverName}! ☀️ Today’s micro-mission for ${child.name}: Before 10 AM, can you both find 3 round objects around the room? A super quick game that fires up spatial curiosity!`;
-    } else if (nudgeType === 'midday_checkin') {
-      nudgeText = `Habari ${child.caregiverName}! Thinking of you. How did ${child.name} wake up from nap time today? Remember to take a deep breath yourself! 🌸`;
-    } else {
-      nudgeText = `Evening reflection with ${child.name}: Did anything make them giggle today? Celebrating the small moments builds lasting warmth. Sleep well tonight! 🌙`;
-    }
-
-    const now = new Date();
-    const botMsg: ChatMessage = {
-      id: 'nudge_' + Date.now(),
-      childId: child.id,
-      sender: 'kinda_care',
-      text: nudgeText,
-      timestamp: now.toISOString(),
-      timeDisplay: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
-      status: 'delivered',
-      fiveBrainAnalysis: {
-        conversationBrain: {
-          detectedIntent: 'Proactive engagement nudge',
-          caregiverTone: 'Supportive',
-          caregiverMode: 'standard',
-          culturalContext: 'kenyan_sheng_swahili'
-        },
-        memoryBrain: {
-          childId: child.id,
-          childName: child.name,
-          recalledMemories: child.strengths
-        },
-        recommendationBrain: {
-          ragMaterialsRetrieved: []
-        },
-        engagementBrain: {
-          nudgeType: nudgeType || 'checkin',
-          nudgeText,
-          emotionalWarmthRating: 9
-        },
-        escalationBrain: {
-          therapistEscalationTriggered: false,
-          adminAlertTriggered: false
-        }
-      }
-    };
-    globalDataStore.addMessage(botMsg);
-    await sendOutboundWhatsAppMessage(child.caregiverPhone, nudgeText);
+    const resolvedType =
+      nudgeType === 'quiet_parent_checkin' ? 'quiet_parent_checkin' : 'organic_random_checkin';
+    const botMsg = await generateOrganicCheckIn(targetChildId, resolvedType);
+    await sendOutboundWhatsAppMessage(child.caregiverPhone, botMsg.text);
 
     return { status: 200, body: { success: true, nudge: botMsg } };
   }

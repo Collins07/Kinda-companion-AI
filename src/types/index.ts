@@ -21,6 +21,8 @@ export interface ChildProfile {
   }[];
   favoriteActivities: string[];
   activeKit?: string; // e.g. "Color & Shape Discovery Kit"
+  environmentContext?: string; // e.g. "Home in Kiambu with small veranda; limited commercial toys"
+  availableResources?: string[]; // e.g. ["Plastic bottle caps", "Maize flour", "Wooden spoons", "Cardboard boxes"]
   subscriptionTier: 'free' | 'premium';
   subscriptionExpiry?: string;
   mpesaPhone?: string;
@@ -49,7 +51,7 @@ export interface FiveBrainAnalysis {
     detectedIntent: string;
     caregiverTone: string;
     caregiverMode: 'standard' | 'caregiver_rest' | 'comfort_first' | 'celebration';
-    culturalContext: 'kenyan_sheng_swahili' | 'english_formal' | 'blended';
+    culturalContext: 'english' | 'swahili' | 'sheng_blended';
   };
   memoryBrain: {
     childId: string;
@@ -65,15 +67,17 @@ export interface FiveBrainAnalysis {
       domain: string;
       relevanceScore: number;
     }[];
+    recommendationSource?: 'clinical_library' | 'adapted_household_resources' | 'creative_everyday_activity' | 'none';
     suggestedActivity?: {
       title: string;
       domain: string;
       stepByStep: string[];
       parentTip: string;
+      resourcesUsed?: string[];
     };
   };
   engagementBrain: {
-    nudgeType?: 'morning_mission' | 'checkin' | 'evening_reflection' | 'rest_break';
+    nudgeType?: 'quiet_parent_checkin' | 'organic_random_checkin' | 'responsive_dialogue' | 'rest_break';
     nudgeText?: string;
     emotionalWarmthRating: number; // 1-10
   };
@@ -177,14 +181,20 @@ export interface ProgressReport {
   }[];
   clinicalTherapistSummary: string;
   upcomingMissionGoals: string[];
+  generatedAt?: string;
+  sharedWithSpecialists?: {
+    therapistId: string;
+    therapistName: string;
+    sharedAt: string;
+    handoffNote?: string;
+  }[];
 }
 
 export interface NudgeSchedule {
   id: string;
   childId: string;
   title: string;
-  type: 'morning_mission' | 'midday_checkin' | 'evening_reflection';
-  time: string; // e.g. "07:30"
+  type: 'quiet_parent_checkin' | 'organic_random_checkin';
   messageTemplate: string;
   active: boolean;
 }

@@ -36,8 +36,7 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
   onConsentToggle
 }) => {
   const [newSensitivity, setNewSensitivity] = useState('');
-  const [newStrength, setNewStrength] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
+  const [newResource, setNewResource] = useState('');
 
   const handleAddSensitivity = async () => {
     if (!newSensitivity.trim()) return;
@@ -57,14 +56,22 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
     await onUpdateChild(updated);
   };
 
-  const handleAddStrength = async () => {
-    if (!newStrength.trim()) return;
+  const handleAddResource = async () => {
+    if (!newResource.trim()) return;
     const updated = {
       ...child,
-      strengths: [...child.strengths, newStrength.trim()]
+      availableResources: [...(child.availableResources || []), newResource.trim()]
     };
     await onUpdateChild(updated);
-    setNewStrength('');
+    setNewResource('');
+  };
+
+  const handleRemoveResource = async (index: number) => {
+    const updated = {
+      ...child,
+      availableResources: (child.availableResources || []).filter((_, i) => i !== index)
+    };
+    await onUpdateChild(updated);
   };
 
   return (
@@ -181,6 +188,52 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
                 {str}
               </span>
             ))}
+          </div>
+        </div>
+
+        {/* Home Environment & Available Resources */}
+        <div className="space-y-1.5 pt-1">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
+            <Sparkles className="w-3.5 h-3.5 text-sky-500" />
+            <span>Home Environment &amp; Available Resources:</span>
+          </span>
+          {child.environmentContext && (
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
+              {child.environmentContext}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {(child.availableResources || []).map((res, idx) => (
+              <span
+                key={idx}
+                className="bg-sky-50 dark:bg-sky-950/60 text-sky-900 dark:text-sky-200 text-xs px-2.5 py-1 rounded-lg border border-sky-200 dark:border-sky-900 flex items-center space-x-1"
+              >
+                <span>{res}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveResource(idx)}
+                  className="text-sky-500 hover:text-sky-800 ml-1 text-xs"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-1.5 pt-1">
+            <input
+              type="text"
+              value={newResource}
+              onChange={(e) => setNewResource(e.target.value)}
+              placeholder="e.g. Bottle tops, maize flour, sufurias, cardboard..."
+              className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-800 dark:text-slate-100"
+            />
+            <button
+              type="button"
+              onClick={handleAddResource}
+              className="bg-sky-600 hover:bg-sky-700 text-white px-2.5 py-1 rounded-lg text-xs font-semibold"
+            >
+              Add
+            </button>
           </div>
         </div>
 

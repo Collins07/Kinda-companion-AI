@@ -9,21 +9,117 @@ import {
   ChatMessage,
   ObservationFeedback,
   FiveBrainAnalysis,
-  TherapistAppointment
+  TherapistAppointment,
+  ProgressReport
 } from '../types';
 import { globalDataStore } from './dataStore';
 import { searchRAGMaterials } from './knowledgeBase';
 import { VERIFIED_THERAPISTS } from './therapistDirectory';
 
-// Initialize the shared server-side Gemini client as instructed in the gemini-api skill
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build'
+function getAiClient(): GoogleGenAI {
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build'
+      }
+    }
+  });
+}
+
+// Use Flash Lite as primary cost-effective conversational model, with Flash fallback
+const PRIMARY_MODEL = 'gemini-3.1-flash-lite';
+const FALLBACK_MODEL = 'gemini-3.8-flash';
+
+function buildChildContextBlock(child: ChildProfile, observations: ObservationFeedback[], queryText: string) {
+  const ragMaterials = searchRAGMaterials(queryText + ' ' + child.sensitivities.join(' ') + ' ' + child.strengths.join(' '), child.ageMonths);
+
+  return {
+    ragMaterials,
+    contextBlock: `
+=== CHILD PROFILE ===
+Name: ${child.name}
+Caregiver: ${child.caregiverName} (${child.caregiverPhone})
+Age: ${Math.floor(child.ageMonths / 12)} years ${child.ageMonths % 12 > 0 ? (child.ageMonths % 12) + ' months' : ''}
+Developmental Stage: ${child.developmentalStage}
+Strengths: ${child.strengths.join(', ')}
+Sensory Sensitivities / Triggers: ${child.sensitivities.length > 0 ? child.sensitivities.join(', ') : 'None documented yet'}
+Active Kit / Play: ${child.activeKit || 'None / Uses everyday household resources'}
+Home Environment: ${child.environmentContext || 'Standard family home in Kenya'}
+Available Household & Local Resources: ${(child.availableResources && child.availableResources.length > 0) ? child.availableResources.join(', ') : 'Everyday household items (spoons, cups, cloth, paper, outdoor nature)'}
+Care-Team Notes: ${child.notes}
+Current Milestones Tracked:
+${child.currentMilestones.map(m => `- [${m.domain.toUpperCase()}] ${m.title} (${m.status})`).join('\n')}
+
+=== LONG-TERM STORED PARENT FEEDBACK & OBSERVATIONS ===
+${observations.slice(-10).map(o => `- [${o.timestamp.slice(0, 10)}] "${o.rawParentMessage}" -> Insight: ${o.insightSummary}`).join('\n') || 'No previous observations recorded yet.'}
+
+=== VERIFIED RAG CLINICAL LIBRARY (REFERENCE WHEN RELEVANT) ===
+${ragMaterials.slice(0, 3).map(m => `### ${m.title} (${m.domain})\n${m.description}\nActivities:\n${m.activities.join('\n')}\nGuidance: ${m.caregiverGuidance}\nRationale: ${m.therapistRationale}`).join('\n\n') || 'No specific library match needed for this turn — feel free to adapt or suggest helpful everyday activities outside the library.'}
+
+=== VERIFIED KENYAN SPECIALISTS DIRECTORY (FOR ESCALATION) ===
+${VERIFIED_THERAPISTS.map(t => `- ${t.name} (${t.title}, ${t.specialty}, Location: ${t.location}, Rate: KSh ${t.rateKSh}, Days: ${t.availableDays.join(', ')})`).join('\n')}
+`
+  };
+}
+
+function buildConversationTurns(history: ChatMessage[], currentMessage: string) {
+  // Include up to 24 prior turns for long conversation context
+  const recent = history.slice(-24);
+  const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+
+  for (const msg of recent) {
+    // Skip if it's literally the exact message we just appended
+    if (msg.sender === 'parent' && msg.text === currentMessage && msg === recent[recent.length - 1]) {
+      continue;
+    }
+    const role: 'user' | 'model' = msg.sender === 'parent' ? 'user' : 'model';
+    // Merge consecutive same-role turns so Gemini turn alternation is valid
+    if (contents.length > 0 && contents[contents.length - 1].role === role) {
+      contents[contents.length - 1].parts[0].text += `\n${msg.text}`;
+    } else {
+      contents.push({ role, parts: [{ text: msg.text }] });
     }
   }
-});
+
+  // Append the live incoming parent message as the final user turn
+  if (contents.length > 0 && contents[contents.length - 1].role === 'user') {
+    contents[contents.length - 1].parts[0].text += `\n${currentMessage}`;
+  } else {
+    contents.push({ role: 'user', parts: [{ text: currentMessage }] });
+  }
+
+  // Gemini requires first turn to be 'user'
+  while (contents.length > 0 && contents[0].role !== 'user') {
+    contents.shift();
+  }
+
+  return contents;
+}
+
+function stripJsonFences(text: string): string {
+  return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+}
+
+async function callGeminiWithRetry(params: any): Promise<string> {
+  const ai = getAiClient();
+  try {
+    const res = await ai.models.generateContent({
+      model: PRIMARY_MODEL,
+      ...params
+    });
+    if (res.text) return res.text;
+    throw new Error('Empty response from primary model');
+  } catch (err: any) {
+    console.warn(`[Gemini Primary Model ${PRIMARY_MODEL} warning]:`, err?.message || err);
+    const resFallback = await ai.models.generateContent({
+      model: FALLBACK_MODEL,
+      ...params
+    });
+    if (resFallback.text) return resFallback.text;
+    throw err;
+  }
+}
 
 export async function processCaregiverMessage(
   childId: string,
@@ -49,86 +145,56 @@ export async function processCaregiverMessage(
 
   const allHistory = globalDataStore.getMessages(childId);
   const observations = globalDataStore.getObservations(childId);
-  const ragMaterials = searchRAGMaterials(incomingText, child.ageMonths);
+  const { ragMaterials, contextBlock } = buildChildContextBlock(child, observations, incomingText);
 
-  // Check for admin escalation triggers directly
-  const adminTriggerRegex = /(refund|money back|severe pain|bleeding|emergency|speak to (the )?owner|speak to (the )?manager)/i;
+  const adminTriggerRegex = /\b(refund|money back|severe pain|bleeding|emergency|speak to (the )?owner|speak to (the )?manager)\b/i;
   const directAdminAlert = adminTriggerRegex.test(incomingText);
 
-  // Check for caregiver exhaustion
-  const exhaustionRegex = /(i('?m| am) exhausted|i('?m| am) tired|burned out|hard day|too much for me|need a break)/i;
+  const exhaustionRegex = /\b(i('?m| am) exhausted|i('?m| am) tired|so tired|am tired|burned out|hard day|too much for me|need a break|tumechoka|nimechoka)\b/i;
   const isCaregiverExhausted = exhaustionRegex.test(incomingText);
 
-  // Construct comprehensive prompt for Gemini
-  const promptContext = `
-=== CHILD PROFILE ===
-Name: ${child.name}
-Caregiver: ${child.caregiverName} (${child.caregiverPhone})
-Age: ${Math.floor(child.ageMonths / 12)} years ${child.ageMonths % 12 > 0 ? (child.ageMonths % 12) + ' months' : ''}
-Developmental Stage: ${child.developmentalStage}
-Strengths: ${child.strengths.join(', ')}
-Sensory Sensitivities / Triggers: ${child.sensitivities.length > 0 ? child.sensitivities.join(', ') : 'None documented yet'}
-Active Kit / Play: ${child.activeKit || 'General Home Play Materials'}
-Current Milestones Tracked:
-${child.currentMilestones.map(m => `- [${m.domain.toUpperCase()}] ${m.title} (${m.status})`).join('\n')}
-
-=== PREVIOUS LONG-TERM PARENT FEEDBACK & OBSERVATIONS STORED ===
-${observations.slice(-5).map(o => `- [${o.timestamp.slice(0, 10)}] "${o.rawParentMessage}" -> Impact: ${o.insightSummary}`).join('\n') || 'No previous observations recorded yet.'}
-
-=== VERIFIED RAG KNOWLEDGE BASE ARTICLES RETRIEVED ===
-${ragMaterials.slice(0, 3).map(m => `### ${m.title} (${m.domain})\n${m.description}\nRecommended Activities:\n${m.activities.join('\n')}\nCaregiver Guidance: ${m.caregiverGuidance}\nTherapist Rationale: ${m.therapistRationale}`).join('\n\n')}
-
-=== VERIFIED KENYAN SPECIALISTS (ESCALATION DIRECTORY) ===
-${VERIFIED_THERAPISTS.map(t => `- ${t.name} (${t.title}, ${t.specialty}, Location: ${t.location}, Rate: KSh ${t.rateKSh}, Avail: ${t.availableDays.join(', ')})`).join('\n')}
-
-=== RECENT CONVERSATION HISTORY ===
-${allHistory.slice(-8).map(m => `${m.sender.toUpperCase()}: ${m.text}`).join('\n')}
-
-=== INCOMING PARENT MESSAGE ===
-PARENT: "${incomingText}"
-`;
+  const conversationTurns = buildConversationTurns(allHistory, incomingText);
 
   const systemInstruction = `
-You are Kinda Care AI, a warm, emotionally intelligent, culturally attuned WhatsApp companion for Kenyan parents and caregivers of young children.
-You sit between the parent, the child's daily activities, and qualified pediatric therapists.
+You are Kinda Care AI, a real-time WhatsApp companion simulating an empathetic, knowledgeable Kenyan pediatric Occupational Therapist (OT) and child development specialist.
+You are having a LIVE, FLOWING CONVERSATION with ${child.caregiverName} about her child ${child.name}.
 
-CORE PRINCIPLES (THE 5 BRAINS):
-1. CONVERSATION BRAIN:
-   - Speak naturally like a supportive, knowledgeable friend. Blend warmth with Kenyan context (understands Sheng, Swahili phrases like "Hiyo bado", "alizipangua", "habari", "mambo", "asante").
-   - CAREGIVER REST MODE: If the parent says they are exhausted ("I'm exhausted", "too tired", etc.), NEVER push a lesson or activity! Validate them warmly: "That sounds like a hard day. You don't have to do an activity right now. Would you prefer to take a break or do a 2-minute calming breathing?"
-   - Ask caring, curious questions to deepen understanding or provide emotional comfort.
+CRITICAL CONVERSATIONAL RULES (READ CAREFULLY):
+1. ALWAYS REPLY DIRECTLY TO WHAT THE PARENT JUST SAID IN THE CONTEXT OF THE CONVERSATION HISTORY.
+   - NEVER repeat a generic template or ignore the parent's question/statement.
+   - If the parent corrects a name (e.g. "sorry i meant joash"), acknowledge the correction naturally and warmly ("No worries at all, Mama Brandon! Got it—Joash!") while honoring whatever she just asked before ("let's do it tomorrow").
+   - If the parent asks to postpone ("let us do that tomorrow", "can we do this tomorrow"), respect it completely! Say okay warmly, wish them rest, and do NOT push an activity right now.
+   - If the parent asks a specific question (e.g. "which song do you recommend i give her to sing in swahili"), answer that exact question directly with concrete, practical suggestions (e.g. specific Kenyan Swahili children's songs like "Kichwa Mabega Magoti na Vidole", "Mimi na Wewe", "Kuku Anaita", "Watoto Wadogo") tailored to ${child.name}'s profile and goals!
 
-2. MEMORY BRAIN:
-   - You know ${child.name}'s specific profile, sensory sensitivities, and developmental history.
-   - When the parent shares a win (e.g. "Today Bravin really did a puzzle kit alone" or "Sharon has been singing using complete words"), celebrate enthusiastically, explain the developmental milestone significance, and store it.
+2. LANGUAGE ADAPTATION (ENGLISH, SWAHILI, OR SHENG - STRICTLY MIRROR THE PARENT):
+   - ALWAYS detect the language of the parent's latest message and reply in that SAME language!
+   - If the parent writes primarily in Swahili (e.g., "Asante! Nitajaribu hiyo nyimbo leo jioni..."), write the ENTIRE replyMessageText in warm, natural, everyday Kenyan Swahili (and set languageUsed to "swahili"). Do NOT switch back to English!
+   - If the parent writes in Sheng or mixed Swahili/English (e.g., "Hiyo bado, alizipangua maze"), reply naturally in warm Kenyan Sheng/Swahili-English mix (and set languageUsed to "sheng_blended").
+   - If the parent writes in English, reply in clear, warm, natural English (and set languageUsed to "english").
 
-3. RECOMMENDATION BRAIN:
-   - Provide gentle, flexible play ideas (Reading, Spelling, Drawing, Sensory Play, Singing, Gross/Fine Motor) grounded in verified materials. Activities are NEVER restricted to a single toy kit.
+3. THE 5 BRAINS:
+   - CONVERSATION BRAIN: Warm, human, non-robotic WhatsApp style (concise, natural paragraphs, no markdown headers). If parent or child is tired/exhausted, enter Caregiver Rest Mode—validate them and give permission to rest.
+   - MEMORY BRAIN: Use ${child.name}'s profile and past parent feedback naturally. Whenever the parent shares a new observation or win (e.g. "Bravin did a puzzle kit alone", "Sharon has been singing using complete words", "he is tired today"), extract it as a structured insight so it informs future conversations and internal specialist reports.
+   - RECOMMENDATION BRAIN: Only suggest activities when appropriate (when parent asks, seems open, or shares a play moment—NEVER when they said they are tired or want to do it tomorrow!). Recommend from the Verified Clinical Library OR creative everyday activities outside the library (reading, spelling, drawing, singing, sensory play, motor play). ALWAYS adapt to the parent's actual home environment and available household resources (${(child.availableResources || []).join(', ')})—never assume they own expensive commercial kits they don't have!
+   - ENGAGEMENT BRAIN: Keep it emotionally varied and human, never pushy.
+   - ESCALATION BRAIN: Only recommend or schedule a specialist session when genuinely warranted by persistent developmental/sensory hurdles (like recurring red-tile aversion) OR when the parent explicitly asks for a specialist. If the user asks for a refund, reports an emergency/severe pain, or demands a manager, append [ALERT_ADMIN] at the very end of replyMessageText.
 
-4. ENGAGEMENT BRAIN:
-   - Keep interactions low-pressure, micro-actionable, and emotionally restorative.
-
-5. ESCALATION BRAIN:
-   - If the parent reports persistent sensory resistance (e.g., Joash refusing red tiles: "Hiyo bado. Alizipangua kwanza..."), offer to schedule a virtual session with our therapist (e.g., Dr. Wanjiku Mwangi, OTR/L).
-   - If the user asks for a refund, expresses severe distress/physical pain, or demands a manager, answer courteously and append [ALERT_ADMIN] at the very end.
-
-OUTPUT FORMAT REQUIREMENTS:
-Provide your response in JSON format matching the schema so we can execute the 5-brain analysis and store observations accurately.
+${contextBlock}
 `;
 
   let replyText = '';
   let analysis: FiveBrainAnalysis = {
     conversationBrain: {
-      detectedIntent: 'Parent check-in and conversation',
-      caregiverTone: isCaregiverExhausted ? 'Exhausted / seeking relief' : 'Engaged',
+      detectedIntent: 'Responsive dialogue',
+      caregiverTone: isCaregiverExhausted ? 'Tired / seeking rest' : 'Engaged',
       caregiverMode: isCaregiverExhausted ? 'caregiver_rest' : 'standard',
-      culturalContext: 'kenyan_sheng_swahili'
+      culturalContext: 'english'
     },
     memoryBrain: {
       childId: child.id,
       childName: child.name,
       recalledMemories: child.sensitivities.concat(child.strengths),
-      newFeedbackExtracted: incomingText.length > 15 ? incomingText : undefined
+      newFeedbackExtracted: undefined
     },
     recommendationBrain: {
       ragMaterialsRetrieved: ragMaterials.map(m => ({
@@ -137,28 +203,22 @@ Provide your response in JSON format matching the schema so we can execute the 5
         domain: m.domain,
         relevanceScore: 0.9
       })),
-      suggestedActivity: ragMaterials[0] ? {
-        title: ragMaterials[0].title,
-        domain: ragMaterials[0].domain,
-        stepByStep: ragMaterials[0].activities.slice(0, 3),
-        parentTip: ragMaterials[0].caregiverGuidance
-      } : undefined
+      recommendationSource: 'none'
     },
     engagementBrain: {
-      nudgeType: isCaregiverExhausted ? 'rest_break' : 'checkin',
+      nudgeType: isCaregiverExhausted ? 'rest_break' : 'responsive_dialogue',
       emotionalWarmthRating: 9
     },
     escalationBrain: {
       therapistEscalationTriggered: false,
       adminAlertTriggered: directAdminAlert,
-      adminAlertReason: directAdminAlert ? 'User requested admin / refund / emergency' : undefined
+      adminAlertReason: directAdminAlert ? 'Admin assistance or critical notice requested' : undefined
     }
   };
 
   try {
-    const geminiResponse = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: promptContext,
+    const rawJsonText = await callGeminiWithRetry({
+      contents: conversationTurns,
       config: {
         systemInstruction,
         responseMimeType: 'application/json',
@@ -167,54 +227,92 @@ Provide your response in JSON format matching the schema so we can execute the 5
           properties: {
             replyMessageText: {
               type: Type.STRING,
-              description: 'The natural, empathetic WhatsApp message reply sent to the parent (no markdown headers, suitable for WhatsApp).'
+              description: 'Natural WhatsApp reply directly addressing the parent message in their language (English, Swahili, or Sheng). No markdown headers.'
             },
             intent: {
               type: Type.STRING,
-              description: 'Brief summary of the caregiver intent.'
+              description: 'Brief summary of what the parent meant/asked.'
+            },
+            caregiverTone: {
+              type: Type.STRING,
+              description: 'Observed emotional tone of the caregiver.'
             },
             caregiverMode: {
               type: Type.STRING,
-              description: 'Mode: standard, caregiver_rest, comfort_first, or celebration.'
+              description: 'One of: standard, caregiver_rest, comfort_first, celebration.'
+            },
+            languageUsed: {
+              type: Type.STRING,
+              description: 'One of: english, swahili, sheng_blended.'
             },
             extractedFeedbackInsight: {
               type: Type.STRING,
-              description: 'If the parent shared an observation/feedback (e.g., Bravin puzzle alone or Sharon singing complete words), summarize the developmental insight. Otherwise empty string.'
+              description: 'Developmental observation or state worth storing in long-term memory (e.g. child tired today, singing Swahili songs, mastered puzzle alone), or empty string if trivial.'
             },
             feedbackCategory: {
               type: Type.STRING,
-              description: 'Category: milestone, sensory, speech, motor, emotional, concern, or general.'
+              description: 'One of: milestone, sensory, speech, motor, emotional, concern, general.'
             },
             milestoneAchieved: {
               type: Type.STRING,
-              description: 'Title of any milestone achieved or emerging, or empty string.'
+              description: 'Title of any milestone achieved/emerging, or empty string.'
+            },
+            recommendationSource: {
+              type: Type.STRING,
+              description: 'One of: clinical_library, adapted_household_resources, creative_everyday_activity, none.'
+            },
+            suggestedActivityTitle: {
+              type: Type.STRING,
+              description: 'Title of activity suggested in reply (if any), or empty string.'
+            },
+            suggestedActivityDomain: {
+              type: Type.STRING,
+              description: 'Domain (reading, spelling, drawing, sensory_play, singing, motor), or empty string.'
+            },
+            suggestedActivitySteps: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: 'Short steps if an activity was suggested, otherwise empty array.'
+            },
+            resourcesUsed: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: 'Household or local resources used in the suggested activity.'
             },
             therapistEscalation: {
               type: Type.BOOLEAN,
-              description: 'Whether a specialist consultation is recommended or scheduled in this turn.'
+              description: 'True ONLY if a specialist consultation should be offered/scheduled based on this turn.'
             },
             therapistRecommendationReason: {
               type: Type.STRING,
-              description: 'Reason for therapist escalation (e.g. sensory desensitization ladder or speech evaluation).'
+              description: 'Reason for therapist escalation, or empty string.'
             },
             suggestedTherapistName: {
               type: Type.STRING,
-              description: 'Name of the therapist to recommend, e.g. Dr. Wanjiku Mwangi, OTR/L.'
+              description: 'Matched therapist name from directory if escalated, or empty string.'
             },
             adminAlertTriggered: {
               type: Type.BOOLEAN,
-              description: 'True if [ALERT_ADMIN] code should be appended.'
+              description: 'True if [ALERT_ADMIN] should be triggered.'
             }
           },
-          required: ['replyMessageText', 'intent', 'caregiverMode']
+          required: ['replyMessageText', 'intent', 'caregiverMode', 'languageUsed']
         }
       }
     });
 
-    const parsed = JSON.parse(geminiResponse.text || '{}');
-    replyText = parsed.replyMessageText || '';
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(stripJsonFences(rawJsonText));
+    } catch {
+      // If model ever returned non-JSON text, ask cleanly for plain text reply instead of falling back to canned strings
+      replyText = rawJsonText.trim();
+    }
 
-    // If admin alert triggered or found in text
+    if (parsed.replyMessageText) {
+      replyText = parsed.replyMessageText;
+    }
+
     if (parsed.adminAlertTriggered || directAdminAlert) {
       if (!replyText.includes('[ALERT_ADMIN]')) {
         replyText += '\n\n[ALERT_ADMIN]';
@@ -227,22 +325,29 @@ Provide your response in JSON format matching the schema so we can execute the 5
       analysis.memoryBrain.newFeedbackExtracted = parsed.extractedFeedbackInsight;
       analysis.memoryBrain.milestoneUpdateDetected = parsed.milestoneAchieved || undefined;
 
-      // Save observation to data store
       const newObs: ObservationFeedback = {
         id: 'obs_' + Date.now(),
         childId: child.id,
         timestamp: new Date().toISOString(),
         rawParentMessage: incomingText,
-        category: (parsed.feedbackCategory as any) || 'milestone',
+        category: (parsed.feedbackCategory as any) || 'general',
         insightSummary: parsed.extractedFeedbackInsight,
-        developmentalImpact: parsed.milestoneAchieved ? `Milestone progressed: ${parsed.milestoneAchieved}` : 'Parent observation recorded for progress tracking.',
-        detectedEmotion: parsed.caregiverMode === 'celebration' ? 'celebratory' : isCaregiverExhausted ? 'exhausted' : 'calm'
+        developmentalImpact: parsed.milestoneAchieved
+          ? `Milestone progressed: ${parsed.milestoneAchieved}`
+          : 'Stored in long-term caregiver memory to guide upcoming conversations & specialist reports.',
+        detectedEmotion:
+          parsed.caregiverMode === 'celebration'
+            ? 'celebratory'
+            : parsed.caregiverMode === 'caregiver_rest'
+            ? 'exhausted'
+            : 'calm'
       };
       globalDataStore.addObservation(newObs);
 
-      // If milestone was achieved, update child profile milestone list
       if (parsed.milestoneAchieved && parsed.milestoneAchieved.trim().length > 0) {
-        const existingMilestone = child.currentMilestones.find(m => m.title.toLowerCase().includes(parsed.milestoneAchieved.toLowerCase()));
+        const existingMilestone = child.currentMilestones.find(m =>
+          m.title.toLowerCase().includes(parsed.milestoneAchieved.toLowerCase())
+        );
         if (existingMilestone) {
           existingMilestone.status = 'achieved';
           existingMilestone.updatedAt = new Date().toISOString().slice(0, 10);
@@ -258,7 +363,19 @@ Provide your response in JSON format matching the schema so we can execute the 5
       }
     }
 
-    // Therapist escalation detection
+    if (parsed.suggestedActivityTitle && parsed.suggestedActivityTitle.trim().length > 0) {
+      analysis.recommendationBrain.recommendationSource = parsed.recommendationSource || 'creative_everyday_activity';
+      analysis.recommendationBrain.suggestedActivity = {
+        title: parsed.suggestedActivityTitle,
+        domain: parsed.suggestedActivityDomain || 'play',
+        stepByStep: parsed.suggestedActivitySteps || [],
+        parentTip: 'Adapted to child profile, goals, and available home resources.',
+        resourcesUsed: parsed.resourcesUsed || []
+      };
+    } else {
+      analysis.recommendationBrain.recommendationSource = 'none';
+    }
+
     if (parsed.therapistEscalation) {
       const recTherapist = parsed.suggestedTherapistName || 'Dr. Wanjiku Mwangi, OTR/L';
       const sessionTopic = parsed.therapistRecommendationReason || 'Targeted Developmental / Sensory Consultation';
@@ -266,7 +383,6 @@ Provide your response in JSON format matching the schema so we can execute the 5
       analysis.escalationBrain.recommendedTherapistName = recTherapist;
       analysis.escalationBrain.scheduledSessionTopic = sessionTopic;
 
-      // Auto-schedule an appointment for Saturday
       const appt: TherapistAppointment = {
         id: 'apt_' + Date.now(),
         childId: child.id,
@@ -278,72 +394,41 @@ Provide your response in JSON format matching the schema so we can execute the 5
         date: 'Next Saturday',
         time: '10:00 AM (EAT)',
         mode: 'virtual_zoom',
-        sessionTopic: sessionTopic,
+        sessionTopic,
         status: 'scheduled',
-        notes: `Auto-escalated via Kinda Care WhatsApp companion: ${sessionTopic}`
+        notes: `Escalated via Kinda Care WhatsApp companion: ${sessionTopic}`
       };
       globalDataStore.addAppointment(appt);
     }
 
-    analysis.conversationBrain.detectedIntent = parsed.intent;
+    analysis.conversationBrain.detectedIntent = parsed.intent || 'Contextual conversation';
+    analysis.conversationBrain.caregiverTone = parsed.caregiverTone || (isCaregiverExhausted ? 'Tired' : 'Engaged');
     analysis.conversationBrain.caregiverMode = parsed.caregiverMode || 'standard';
+    analysis.conversationBrain.culturalContext = parsed.languageUsed || 'english';
+  } catch (error: any) {
+    console.error('[Gemini Service Error]', error?.message || error);
 
-  } catch (error) {
-    console.warn('Gemini API call warning, utilizing resilient fallback engine:', error);
-    // Intelligent rule-based fallback maintaining the 5-brain principles
-    if (isCaregiverExhausted) {
-      replyText = `That sounds like a hard day, ${child.caregiverName}. You don't have to do any developmental activity right now. 💙\n\nWould you prefer to take a quiet break for yourself, or shall we just do a 2-minute calming breathing together? Your rest comes first.`;
-      analysis.conversationBrain.caregiverMode = 'caregiver_rest';
-    } else if (incomingText.toLowerCase().includes('puzzle') && incomingText.toLowerCase().includes('alone')) {
-      replyText = `What a huge milestone for ${child.name}! 🎉 Doing a puzzle kit completely alone shows incredible spatial reasoning, problem-solving confidence, and focus.\n\nWhen he placed that last piece, how did his face look? That sense of mastery is so rewarding!`;
-      analysis.memoryBrain.newFeedbackExtracted = 'Child completed entire puzzle kit independently';
-      globalDataStore.addObservation({
-        id: 'obs_' + Date.now(),
-        childId: child.id,
-        timestamp: new Date().toISOString(),
-        rawParentMessage: incomingText,
-        category: 'milestone',
-        insightSummary: 'Independent completion of puzzle kit without assistance.',
-        developmentalImpact: 'Executive function & fine motor spatial mastery.',
-        detectedEmotion: 'celebratory'
+    // Second chance: Plain-text conversational call without structured JSON schema
+    try {
+      const plainText = await callGeminiWithRetry({
+        contents: conversationTurns,
+        config: {
+          systemInstruction: `${systemInstruction}\n\nRespond directly as a warm WhatsApp text reply to the parent's latest message.`
+        }
       });
-    } else if (incomingText.toLowerCase().includes('singing') || incomingText.toLowerCase().includes('words')) {
-      replyText = `That is fantastic news, ${child.caregiverName}! 🎶 Singing with complete words means her brain is connecting musical melody with expressive speech pathways. Melody makes speech easier and more joyful for young children.\n\nWhat song has she been loving to sing the most?`;
-      analysis.memoryBrain.newFeedbackExtracted = 'Child singing with complete words instead of hums';
-      globalDataStore.addObservation({
-        id: 'obs_' + Date.now(),
-        childId: child.id,
-        timestamp: new Date().toISOString(),
-        rawParentMessage: incomingText,
-        category: 'speech',
-        insightSummary: 'Singing with complete articulated words; expressive language leap.',
-        developmentalImpact: 'Speech sound consolidation via melodic intonation.',
-        detectedEmotion: 'celebratory'
-      });
-    } else if (incomingText.toLowerCase().includes('hiyo bado') || incomingText.toLowerCase().includes('alizipangua') || incomingText.toLowerCase().includes('red')) {
-      replyText = `Okay on Saturday I'll schedule a 30 minute virtual session with our therapist to guide you on how ${child.name} can be helped build tolerance to the red color. In the meantime, no pressure on the red tiles—just let him enjoy the colors he feels safe with! 🧩`;
-      analysis.escalationBrain.therapistEscalationTriggered = true;
-      analysis.escalationBrain.recommendedTherapistName = 'Dr. Wanjiku Mwangi, OTR/L';
-      analysis.escalationBrain.scheduledSessionTopic = 'Sensory Ladder for Visual / Red Color Tolerance';
-      globalDataStore.addAppointment({
-        id: 'apt_' + Date.now(),
-        childId: child.id,
-        childName: child.name,
-        caregiverName: child.caregiverName,
-        caregiverPhone: child.caregiverPhone,
-        therapistId: 'therapist_dr_wanjiku',
-        therapistName: 'Dr. Wanjiku Mwangi, OTR/L',
-        date: 'This Saturday',
-        time: '10:00 AM (EAT)',
-        mode: 'virtual_zoom',
-        sessionTopic: 'Sensory Ladder for Visual / Red Color Tolerance',
-        status: 'scheduled'
-      });
-    } else if (directAdminAlert) {
-      replyText = `Let me check that with the manager right away so we can assist you properly.\n\n[ALERT_ADMIN]`;
-      analysis.escalationBrain.adminAlertTriggered = true;
-    } else {
-      replyText = `Thank you for sharing that with me, ${child.caregiverName}! Every little moment and observation helps us support ${child.name}'s journey. Would you like a playful 5-minute activity suggestion for today, or how is ${child.name}'s mood feeling right now?`;
+      replyText = plainText.trim();
+    } catch (plainErr: any) {
+      console.error('[Gemini Plain Fallback Error]', plainErr?.message || plainErr);
+      // Only reached if API key is missing/invalid or network is completely unreachable
+      if (isCaregiverExhausted || /\btomorrow\b/i.test(incomingText)) {
+        replyText = `Pole sana, ${child.caregiverName}. Completely understood—let's rest today and pick things up gently tomorrow when you and ${child.name} have fresh energy. 💙`;
+        analysis.conversationBrain.caregiverMode = 'caregiver_rest';
+      } else if (directAdminAlert) {
+        replyText = `Let me check that with our care coordinator right away so we can help you properly.\n\n[ALERT_ADMIN]`;
+        analysis.escalationBrain.adminAlertTriggered = true;
+      } else {
+        throw new Error(`Unable to reach Gemini AI service: ${plainErr?.message || 'Unknown API error'}`);
+      }
     }
   }
 
@@ -365,4 +450,134 @@ Provide your response in JSON format matching the schema so we can execute the 5
   globalDataStore.addMessage(replyMessage);
 
   return { replyMessage, fiveBrainAnalysis: analysis };
+}
+
+export async function generateOrganicCheckIn(
+  childId: string,
+  triggerType: 'quiet_parent_checkin' | 'organic_random_checkin'
+): Promise<ChatMessage> {
+  const child = globalDataStore.getChild(childId);
+  if (!child) throw new Error('Child not found');
+
+  const history = globalDataStore.getMessages(childId);
+  const observations = globalDataStore.getObservations(childId);
+  const { ragMaterials, contextBlock } = buildChildContextBlock(child, observations, child.favoriteActivities.join(' '));
+
+  const scenarioPrompt =
+    triggerType === 'quiet_parent_checkin'
+      ? `The parent (${child.caregiverName}) has gone quiet for 3-4 days since your last conversation. Craft ONE warm, short, pressure-free WhatsApp check-in referencing something natural from their last conversation or ${child.name}'s profile. Do not sound like an automated alarm or guilt-trip them.`
+      : `Send ONE spontaneous, emotionally varied, warm WhatsApp check-in to ${child.caregiverName} about ${child.name}. You might playfully ask how a home activity went using what they have at home (${(child.availableResources || []).join(', ')}), or simply check in on how ${child.caregiverName} herself is holding up today.`;
+
+  let nudgeText = '';
+  try {
+    const raw = await callGeminiWithRetry({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `${scenarioPrompt}\n\nRecent messages:\n${history.slice(-6).map(m => `${m.sender.toUpperCase()}: ${m.text}`).join('\n')}`
+            }
+          ]
+        }
+      ],
+      config: {
+        systemInstruction: `You are Kinda Care AI, a warm Kenyan OT caregiver companion on WhatsApp. Return ONLY the WhatsApp message text (2-3 sentences max, warm, culturally natural, no quotes around the message).\n${contextBlock}`
+      }
+    });
+    nudgeText = raw.trim().replace(/^["']|["']$/g, '');
+  } catch (err) {
+    console.warn('[Organic CheckIn fallback]', err);
+    nudgeText =
+      triggerType === 'quiet_parent_checkin'
+        ? `Habari ${child.caregiverName}! It's been a few quiet days and I was just thinking about you and ${child.name}. No pressure at all—just checking how you're both doing this week? 💙`
+        : `Hey ${child.caregiverName}! Hope today is treating you kindly. Has ${child.name} shown any funny little moments or new curiosity around the house lately?`;
+  }
+
+  const now = new Date();
+  const botMsg: ChatMessage = {
+    id: 'nudge_' + Date.now(),
+    childId: child.id,
+    sender: 'kinda_care',
+    text: nudgeText,
+    timestamp: now.toISOString(),
+    timeDisplay: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+    status: 'delivered',
+    fiveBrainAnalysis: {
+      conversationBrain: {
+        detectedIntent: triggerType === 'quiet_parent_checkin' ? 'Re-engage after multi-day silence' : 'Spontaneous organic warmth check-in',
+        caregiverTone: 'Warm & pressure-free',
+        caregiverMode: 'standard',
+        culturalContext: 'sheng_blended'
+      },
+      memoryBrain: {
+        childId: child.id,
+        childName: child.name,
+        recalledMemories: child.strengths.concat(child.sensitivities)
+      },
+      recommendationBrain: {
+        ragMaterialsRetrieved: ragMaterials.slice(0, 1).map(m => ({
+          id: m.id,
+          title: m.title,
+          domain: m.domain,
+          relevanceScore: 0.85
+        })),
+        recommendationSource: 'creative_everyday_activity'
+      },
+      engagementBrain: {
+        nudgeType: triggerType,
+        nudgeText,
+        emotionalWarmthRating: 9
+      },
+      escalationBrain: {
+        therapistEscalationTriggered: false,
+        adminAlertTriggered: false
+      }
+    }
+  };
+
+  globalDataStore.addMessage(botMsg);
+  return botMsg;
+}
+
+export async function generateDynamicProgressReport(childId: string): Promise<ProgressReport | null> {
+  const baseReport = globalDataStore.generateProgressReport(childId);
+  const child = globalDataStore.getChild(childId);
+  if (!baseReport || !child) return null;
+
+  const msgs = globalDataStore.getMessages(childId);
+  const obs = globalDataStore.getObservations(childId);
+
+  try {
+    const rawJson = await callGeminiWithRetry({
+      contents: `Analyze this child's complete longitudinal log and synthesize a clinical progress report for Kinda Care's internal team and external specialists.\n\nChild: ${child.name} (${baseReport.age})\nStage: ${child.developmentalStage}\nSensitivities: ${child.sensitivities.join(', ')}\nAvailable Home Resources: ${(child.availableResources || []).join(', ')}\n\nParent Observations:\n${obs.map(o => `- [${o.timestamp.slice(0, 10)}] "${o.rawParentMessage}" (${o.category})`).join('\n')}\n\nRecent Conversation History:\n${msgs.slice(-15).map(m => `${m.sender}: ${m.text}`).join('\n')}`,
+      config: {
+        systemInstruction: 'You are a pediatric Occupational Therapist / Developmental Coordinator synthesizing an internal clinical progress report for specialists. Be accurate, grounded strictly in the logged messages and observations.',
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            clinicalTherapistSummary: { type: Type.STRING },
+            upcomingMissionGoals: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          },
+          required: ['clinicalTherapistSummary', 'upcomingMissionGoals']
+        }
+      }
+    });
+
+    const parsed = JSON.parse(stripJsonFences(rawJson));
+    if (parsed.clinicalTherapistSummary) {
+      baseReport.clinicalTherapistSummary = parsed.clinicalTherapistSummary;
+    }
+    if (Array.isArray(parsed.upcomingMissionGoals) && parsed.upcomingMissionGoals.length > 0) {
+      baseReport.upcomingMissionGoals = parsed.upcomingMissionGoals;
+    }
+  } catch (err) {
+    console.warn('[Report synthesis fallback to deterministic summary]', err);
+  }
+
+  return baseReport;
 }

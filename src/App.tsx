@@ -48,6 +48,7 @@ export default function App() {
   const [selectedAnalysis, setSelectedAnalysis] = useState<FiveBrainAnalysis | undefined>(undefined);
   const [activeRightTab, setActiveRightTab] = useState<'brains' | 'feedback' | 'profile'>('brains');
   const [isLoadingChat, setIsLoadingChat] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
   // Modals
   const [showReportModal, setShowReportModal] = useState(false);
@@ -124,6 +125,7 @@ export default function App() {
 
   useEffect(() => {
     if (selectedChildId) {
+      setChatError(null);
       loadChildData(selectedChildId);
     }
   }, [selectedChildId]);
@@ -131,6 +133,7 @@ export default function App() {
   // Send message
   const handleSendMessage = async (text: string, replyToId?: string) => {
     setIsLoadingChat(true);
+    setChatError(null);
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -143,24 +146,28 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (data.success) {
-        setMessages(prev => [...prev, data.parentMessage, data.replyMessage]);
-        if (data.fiveBrainAnalysis) {
-          setSelectedAnalysis(data.fiveBrainAnalysis);
-        }
-        // Refresh observations and appointments
-        await loadChildData(activeChild.id);
+      if (!res.ok || !data.success) {
+        setChatError(data.error || 'Failed to generate AI response.');
+        return;
       }
-    } catch (err) {
+      setMessages(prev => [...prev, data.parentMessage, data.replyMessage]);
+      if (data.fiveBrainAnalysis) {
+        setSelectedAnalysis(data.fiveBrainAnalysis);
+      }
+      // Refresh observations and appointments
+      await loadChildData(activeChild.id);
+    } catch (err: any) {
       console.error('Chat error:', err);
+      setChatError(err?.message || 'Network error while reaching Kinda Care backend.');
     } finally {
       setIsLoadingChat(false);
     }
   };
 
-  // Proactive Nudge Trigger
-  const handleTriggerNudge = async (type: 'morning_mission' | 'midday_checkin' | 'evening_reflection') => {
+  // Organic / Silence-Based Check-In Trigger
+  const handleTriggerNudge = async (type: 'quiet_parent_checkin' | 'organic_random_checkin') => {
     setIsLoadingChat(true);
+    setChatError(null);
     try {
       const res = await fetch('/api/nudge/trigger', {
         method: 'POST',
@@ -207,7 +214,7 @@ export default function App() {
     }
   };
 
-  // Generate Report
+  // Generate Report (Kinda Care & Specialist Side Only)
   const handleOpenReport = async () => {
     try {
       const res = await fetch('/api/report/generate', {
@@ -222,6 +229,31 @@ export default function App() {
       }
     } catch (err) {
       console.error('Generate report error:', err);
+    }
+  };
+
+  // Share Report with Specialist
+  const handleShareWithSpecialist = async (
+    childId: string,
+    therapistId: string,
+    therapistName: string,
+    handoffNote: string
+  ) => {
+    try {
+      const res = await fetch('/api/report/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ childId, therapistId, therapistName, handoffNote })
+      });
+      const data = await res.json();
+      if (data.success && progressReportData) {
+        setProgressReportData({
+          ...progressReportData,
+          sharedWithSpecialists: data.sharedWithSpecialists
+        });
+      }
+    } catch (err) {
+      console.error('Share report error:', err);
     }
   };
 
@@ -405,19 +437,28 @@ export default function App() {
             messages={messages}
             onSendMessage={handleSendMessage}
             isLoading={isLoadingChat}
+            errorMessage={chatError}
             onSelectAnalysis={(analysis) => {
               setSelectedAnalysis(analysis);
               setActiveRightTab('brains');
             }}
-            onOpenReport={handleOpenReport}
             onOpenTherapist={() => setShowTherapistModal(true)}
             onTriggerNudge={handleTriggerNudge}
             onTriggerMpesa={handleTriggerMpesa}
           />
         </div>
 
-        {/* Right Column: 5-Brains Inspector, Parent Feedback Vault & Child Profile */}
+        {/* Right Column: Kinda Care Care-Team & Specialist Console (Hidden from Parents) */}
         <div className="lg:col-span-7 flex flex-col space-y-4">
+          <div className="flex items-center justify-between text-xs px-1">
+            <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+              <span>Kinda Care Care-Team &amp; Specialist Console</span>
+            </span>
+            <span className="text-[11px] bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 px-2 py-0.5 rounded-full font-semibold">
+              Internal Only • Hidden from Parent WhatsApp
+            </span>
+          </div>
           {/* Sub Navigation Tabs for Right Panel */}
           <div className="flex items-center space-x-2 bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
             <button
@@ -504,7 +545,8 @@ export default function App() {
 
       {/* Modals */}
       <ProgressReportModal
-        report={progressReportData}
+        report={showReportModal ? progressReportData : null}
+        onShareWithSpecialist={handleShareWithSpecialist}
         onClose={() => setShowReportModal(false)}
       />
 

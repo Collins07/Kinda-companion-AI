@@ -33,10 +33,10 @@ interface WhatsAppPhoneProps {
   messages: ChatMessage[];
   onSendMessage: (text: string, replyToId?: string) => Promise<void>;
   isLoading: boolean;
+  errorMessage?: string | null;
   onSelectAnalysis: (analysis?: FiveBrainAnalysis) => void;
-  onOpenReport: () => void;
   onOpenTherapist: () => void;
-  onTriggerNudge: (type: 'morning_mission' | 'midday_checkin' | 'evening_reflection') => void;
+  onTriggerNudge: (type: 'quiet_parent_checkin' | 'organic_random_checkin') => void;
   onTriggerMpesa: () => void;
 }
 
@@ -45,8 +45,8 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
   messages,
   onSendMessage,
   isLoading,
+  errorMessage,
   onSelectAnalysis,
-  onOpenReport,
   onOpenTherapist,
   onTriggerNudge,
   onTriggerMpesa
@@ -67,10 +67,6 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
     setInputText('');
     setReplyingTo(null);
     await onSendMessage(text, repId);
-  };
-
-  const handleQuickScenario = (text: string) => {
-    setInputText(text);
   };
 
   return (
@@ -142,9 +138,8 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
               </button>
               <button
                 type="button"
-                onClick={onOpenReport}
                 className="hover:text-emerald-200 transition"
-                title="Progress Report"
+                title="WhatsApp Conversation Options"
               >
                 <MoreVertical className="w-5 h-5" />
               </button>
@@ -260,6 +255,14 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
               </div>
             )}
 
+            {/* Error banner if API failed */}
+            {errorMessage && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded-xl flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
 
@@ -281,54 +284,6 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
               </button>
             </div>
           )}
-
-          {/* Quick Scenario Pills (Kenya reality triggers from PDF/Screenshot) */}
-          <div className="bg-[#efeae2]/90 dark:bg-[#0b141a]/90 backdrop-blur-xs px-2 py-1.5 border-t border-slate-200 dark:border-slate-800 flex items-center space-x-1.5 overflow-x-auto scrollbar-none text-[11px]">
-            <span className="text-slate-400 text-[10px] font-semibold uppercase shrink-0">Try:</span>
-            <button
-              type="button"
-              onClick={() => handleQuickScenario("He has been restless today but now he is calm")}
-              className="bg-white dark:bg-[#202c33] text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-full border border-slate-300 dark:border-slate-700 shadow-2xs hover:border-emerald-500 whitespace-nowrap transition"
-            >
-              Restless to calm
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickScenario("Hiyo bado. Alizipangua kwanza when we were starting to play together 😅")}
-              className="bg-white dark:bg-[#202c33] text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-full border border-slate-300 dark:border-slate-700 shadow-2xs hover:border-emerald-500 whitespace-nowrap transition"
-            >
-              "Hiyo bado alizipangua 😅"
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickScenario("I'm exhausted. Today was a very draining day.")}
-              className="bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 px-2.5 py-1 rounded-full border border-amber-300 dark:border-amber-800/60 shadow-2xs hover:bg-amber-100 whitespace-nowrap transition flex items-center space-x-1"
-            >
-              <Coffee className="w-3 h-3" />
-              <span>"I'm exhausted"</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickScenario("Today Bravin really did a puzzle kit alone! Completely by himself!")}
-              className="bg-white dark:bg-[#202c33] text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-full border border-slate-300 dark:border-slate-700 shadow-2xs hover:border-emerald-500 whitespace-nowrap transition"
-            >
-              Bravin puzzle alone
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickScenario("for the last few days Sharon has been singing using complete words")}
-              className="bg-white dark:bg-[#202c33] text-slate-700 dark:text-slate-200 px-2.5 py-1 rounded-full border border-slate-300 dark:border-slate-700 shadow-2xs hover:border-emerald-500 whitespace-nowrap transition"
-            >
-              Sharon singing words
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickScenario("I need an occupational therapist around Kiambu for sensory issues")}
-              className="bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded-full border border-emerald-300 dark:border-emerald-800 shadow-2xs whitespace-nowrap transition"
-            >
-              Therapist in Kiambu
-            </button>
-          </div>
 
           {/* WhatsApp Bottom Chat Input Bar */}
           <form
@@ -381,34 +336,41 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
         <div className="w-32 h-1 bg-slate-500/60 rounded-full mx-auto mt-2.5 mb-1" />
       </div>
 
-      {/* Simulator Shortcut Actions */}
-      <div className="w-full mt-3 flex flex-wrap gap-2 justify-center items-center text-xs">
-        <button
-          type="button"
-          onClick={() => onTriggerNudge('morning_mission')}
-          className="bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 hover:bg-amber-200 px-3 py-1.5 rounded-lg border border-amber-300 font-medium flex items-center space-x-1.5 transition"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-          <span>Send Morning Nudge</span>
-        </button>
+      {/* Outbound Companion Check-In Simulator (Non-fixed, Organic / Silence-Based) */}
+      <div className="w-full mt-3 flex flex-col items-center space-y-1.5 text-xs">
+        <span className="text-[11px] text-slate-500 font-medium">
+          Simulate Kinda Care Initiating Check-In (Non-fixed / Organic):
+        </span>
+        <div className="flex flex-wrap gap-2 justify-center items-center">
+          <button
+            type="button"
+            disabled={isLoading}
+            onClick={() => onTriggerNudge('quiet_parent_checkin')}
+            className="bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 hover:bg-amber-200 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-amber-300 font-medium flex items-center space-x-1.5 transition"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+            <span>Parent Quiet (3+ Days) Check-In</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => onTriggerNudge('midday_checkin')}
-          className="bg-sky-100 dark:bg-sky-900/40 text-sky-900 dark:text-sky-200 hover:bg-sky-200 px-3 py-1.5 rounded-lg border border-sky-300 font-medium flex items-center space-x-1.5 transition"
-        >
-          <HeartHandshake className="w-3.5 h-3.5 text-sky-600" />
-          <span>Check-in Nudge</span>
-        </button>
+          <button
+            type="button"
+            disabled={isLoading}
+            onClick={() => onTriggerNudge('organic_random_checkin')}
+            className="bg-sky-100 dark:bg-sky-900/40 text-sky-900 dark:text-sky-200 hover:bg-sky-200 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-sky-300 font-medium flex items-center space-x-1.5 transition"
+          >
+            <HeartHandshake className="w-3.5 h-3.5 text-sky-600" />
+            <span>Organic Random Check-In</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={onTriggerMpesa}
-          className="bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-200 px-3 py-1.5 rounded-lg border border-emerald-300 font-medium flex items-center space-x-1.5 transition"
-        >
-          <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Simulate M-Pesa STK Push</span>
-        </button>
+          <button
+            type="button"
+            onClick={onTriggerMpesa}
+            className="bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-200 px-3 py-1.5 rounded-lg border border-emerald-300 font-medium flex items-center space-x-1.5 transition"
+          >
+            <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
+            <span>M-Pesa STK Push</span>
+          </button>
+        </div>
       </div>
     </div>
   );
