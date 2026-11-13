@@ -15,6 +15,7 @@ import {
 import { globalDataStore } from './dataStore';
 import { searchRAGMaterials } from './knowledgeBase';
 import { VERIFIED_THERAPISTS } from './therapistDirectory';
+import { analyzeParentSentiment } from './sentimentAnalyzer';
 
 function getAiClient(): GoogleGenAI {
   return new GoogleGenAI({
@@ -147,17 +148,43 @@ export async function processCaregiverMessage(
   const observations = globalDataStore.getObservations(childId);
   const { ragMaterials, contextBlock } = buildChildContextBlock(child, observations, incomingText);
 
+  const recentSnippet = allHistory
+    .slice(-4)
+    .map(m => `${m.sender.toUpperCase()}: ${m.text}`)
+    .join('\n');
+
+  // Step 1: Run dedicated Sentiment Analysis on incoming parent message
+  const sentimentResult = await analyzeParentSentiment(incomingText, recentSnippet);
+
   const adminTriggerRegex = /\b(refund|money back|severe pain|bleeding|emergency|speak to (the )?owner|speak to (the )?manager)\b/i;
   const directAdminAlert = adminTriggerRegex.test(incomingText);
 
   const exhaustionRegex = /\b(i('?m| am) exhausted|i('?m| am) tired|so tired|am tired|burned out|hard day|too much for me|need a break|tumechoka|nimechoka)\b/i;
-  const isCaregiverExhausted = exhaustionRegex.test(incomingText);
+  const isCaregiverExhausted =
+    exhaustionRegex.test(incomingText) ||
+    sentimentResult.sentiment === 'exhausted' ||
+    sentimentResult.sentiment === 'stressed_overwhelmed';
+
+  const derivedMode: FiveBrainAnalysis['conversationBrain']['caregiverMode'] =
+    sentimentResult.sentiment === 'exhausted' || sentimentResult.sentiment === 'stressed_overwhelmed'
+      ? 'caregiver_rest'
+      : sentimentResult.sentiment === 'anxious_worried' || sentimentResult.sentiment === 'frustrated'
+      ? 'comfort_first'
+      : sentimentResult.sentiment === 'celebratory'
+      ? 'celebration'
+      : 'standard';
 
   const conversationTurns = buildConversationTurns(allHistory, incomingText);
 
   const systemInstruction = `
 You are Kinda Care AI, a real-time WhatsApp companion simulating an empathetic, knowledgeable Kenyan pediatric Occupational Therapist (OT) and child development specialist.
 You are having a LIVE, FLOWING CONVERSATION with ${child.caregiverName} about her child ${child.name}.
+
+=== REAL-TIME SENTIMENT & DYNAMIC TONE CALIBRATION ===
+Detected Parent Sentiment: ${sentimentResult.sentiment.toUpperCase()} (Polarity: ${sentimentResult.polarityScore.toFixed(2)}, Stress Level: ${sentimentResult.stressLevel.toUpperCase()})
+Emotional Cues Detected: ${sentimentResult.emotionalCues.join(', ') || 'None'}
+Recommended AI Tone: ${sentimentResult.recommendedAiTone.replace(/_/g, ' ').toUpperCase()}
+MANDATORY TONE DIRECTIVE: ${sentimentResult.toneDirective}
 
 CRITICAL CONVERSATIONAL RULES (READ CAREFULLY):
 1. ALWAYS REPLY DIRECTLY TO WHAT THE PARENT JUST SAID IN THE CONTEXT OF THE CONVERSATION HISTORY.
@@ -173,9 +200,9 @@ CRITICAL CONVERSATIONAL RULES (READ CAREFULLY):
    - If the parent writes in English, reply in clear, warm, natural English (and set languageUsed to "english").
 
 3. THE 5 BRAINS:
-   - CONVERSATION BRAIN: Warm, human, non-robotic WhatsApp style (concise, natural paragraphs, no markdown headers). If parent or child is tired/exhausted, enter Caregiver Rest Mode—validate them and give permission to rest.
+   - CONVERSATION BRAIN: Dynamically match the MANDATORY TONE DIRECTIVE above. Warm, human, non-robotic WhatsApp style (concise, natural paragraphs, no markdown headers). If parent or child is tired/stressed/exhausted, enter Caregiver Rest Mode—validate them and give permission to rest.
    - MEMORY BRAIN: Use ${child.name}'s profile and past parent feedback naturally. Whenever the parent shares a new observation or win (e.g. "Bravin did a puzzle kit alone", "Sharon has been singing using complete words", "he is tired today"), extract it as a structured insight so it informs future conversations and internal specialist reports.
-   - RECOMMENDATION BRAIN: Only suggest activities when appropriate (when parent asks, seems open, or shares a play moment—NEVER when they said they are tired or want to do it tomorrow!). Recommend from the Verified Clinical Library OR creative everyday activities outside the library (reading, spelling, drawing, singing, sensory play, motor play). ALWAYS adapt to the parent's actual home environment and available household resources (${(child.availableResources || []).join(', ')})—never assume they own expensive commercial kits they don't have!
+   - RECOMMENDATION BRAIN: Only suggest activities when appropriate (when parent asks, seems open, or shares a play moment—NEVER when they said they are tired, stressed, or want to do it tomorrow!). Recommend from the Verified Clinical Library OR creative everyday activities outside the library (reading, spelling, drawing, singing, sensory play, motor play). ALWAYS adapt to the parent's actual home environment and available household resources (${(child.availableResources || []).join(', ')})—never assume they own expensive commercial kits they don't have!
    - ENGAGEMENT BRAIN: Keep it emotionally varied and human, never pushy.
    - ESCALATION BRAIN: Only recommend or schedule a specialist session when genuinely warranted by persistent developmental/sensory hurdles (like recurring red-tile aversion) OR when the parent explicitly asks for a specialist. If the user asks for a refund, reports an emergency/severe pain, or demands a manager, append [ALERT_ADMIN] at the very end of replyMessageText.
 
@@ -186,9 +213,10 @@ ${contextBlock}
   let analysis: FiveBrainAnalysis = {
     conversationBrain: {
       detectedIntent: 'Responsive dialogue',
-      caregiverTone: isCaregiverExhausted ? 'Tired / seeking rest' : 'Engaged',
-      caregiverMode: isCaregiverExhausted ? 'caregiver_rest' : 'standard',
-      culturalContext: 'english'
+      caregiverTone: `${sentimentResult.sentiment.replace(/_/g, ' ')} (${sentimentResult.recommendedAiTone.replace(/_/g, ' ')})`,
+      caregiverMode: derivedMode,
+      culturalContext: 'english',
+      sentimentAnalysis: sentimentResult
     },
     memoryBrain: {
       childId: child.id,
@@ -336,11 +364,17 @@ ${contextBlock}
           ? `Milestone progressed: ${parsed.milestoneAchieved}`
           : 'Stored in long-term caregiver memory to guide upcoming conversations & specialist reports.',
         detectedEmotion:
-          parsed.caregiverMode === 'celebration'
+          sentimentResult.sentiment === 'celebratory'
             ? 'celebratory'
-            : parsed.caregiverMode === 'caregiver_rest'
+            : sentimentResult.sentiment === 'exhausted' || sentimentResult.sentiment === 'stressed_overwhelmed'
             ? 'exhausted'
-            : 'calm'
+            : sentimentResult.sentiment === 'anxious_worried'
+            ? 'anxious'
+            : sentimentResult.sentiment === 'frustrated'
+            ? 'frustrated'
+            : sentimentResult.sentiment === 'calm_positive'
+            ? 'calm'
+            : 'neutral'
       };
       globalDataStore.addObservation(newObs);
 

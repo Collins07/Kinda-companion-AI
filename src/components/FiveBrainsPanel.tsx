@@ -111,6 +111,28 @@ export const FiveBrainsPanel: React.FC<FiveBrainsPanelProps> = ({
                   : 'English'}
               </span>
             </div>
+            {conversationBrain.sentimentAnalysis && (
+              <div className="mt-2 bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-700 dark:text-slate-200">
+                    Sentiment: {conversationBrain.sentimentAnalysis.sentiment.replace(/_/g, ' ').toUpperCase()}
+                  </span>
+                  <span className={`px-1.5 py-0.5 rounded font-semibold text-[10px] ${
+                    conversationBrain.sentimentAnalysis.stressLevel === 'high'
+                      ? 'bg-rose-100 text-rose-800'
+                      : conversationBrain.sentimentAnalysis.stressLevel === 'moderate'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}>
+                    Stress: {conversationBrain.sentimentAnalysis.stressLevel.toUpperCase()} ({conversationBrain.sentimentAnalysis.polarityScore >= 0 ? '+' : ''}{conversationBrain.sentimentAnalysis.polarityScore.toFixed(2)})
+                  </span>
+                </div>
+                <div className="text-slate-500 dark:text-slate-400">
+                  <strong className="text-slate-700 dark:text-slate-300">AI Tone Calibrated: </strong>
+                  {conversationBrain.sentimentAnalysis.recommendedAiTone.replace(/_/g, ' ')}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

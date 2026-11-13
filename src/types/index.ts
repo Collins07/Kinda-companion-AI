@@ -46,12 +46,29 @@ export interface ObservationFeedback {
   verifiedByTherapist?: boolean;
 }
 
+export interface SentimentAnalysisResult {
+  sentiment: 'celebratory' | 'stressed_overwhelmed' | 'exhausted' | 'anxious_worried' | 'frustrated' | 'calm_positive' | 'neutral';
+  polarityScore: number; // -1.0 to 1.0
+  stressLevel: 'low' | 'moderate' | 'high';
+  confidence: number; // 0 to 1
+  emotionalCues: string[];
+  recommendedAiTone:
+    | 'deeply_supportive_and_gentle'
+    | 'warm_reassuring_and_calming'
+    | 'enthusiastic_and_celebratory'
+    | 'patient_and_deescalating'
+    | 'warm_and_encouraging'
+    | 'neutral_conversational';
+  toneDirective: string;
+}
+
 export interface FiveBrainAnalysis {
   conversationBrain: {
     detectedIntent: string;
     caregiverTone: string;
     caregiverMode: 'standard' | 'caregiver_rest' | 'comfort_first' | 'celebration';
     culturalContext: 'english' | 'swahili' | 'sheng_blended';
+    sentimentAnalysis?: SentimentAnalysisResult;
   };
   memoryBrain: {
     childId: string;

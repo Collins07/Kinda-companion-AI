@@ -9,6 +9,7 @@ import {
   generateOrganicCheckIn,
   generateDynamicProgressReport
 } from './geminiService';
+import { analyzeParentSentiment } from './sentimentAnalyzer';
 import { handleWhatsAppIncomingWebhook, DEFAULT_VERIFY_TOKEN, sendOutboundWhatsAppMessage } from './whatsappWebhook';
 import { VERIFIED_EDUCATIONAL_MATERIALS } from './knowledgeBase';
 import { VERIFIED_THERAPISTS, findTherapists } from './therapistDirectory';
@@ -101,7 +102,32 @@ export async function handleApiRequest(
         success: true,
         parentMessage: parentMsg,
         replyMessage,
+        sentimentAnalysis: fiveBrainAnalysis.conversationBrain.sentimentAnalysis,
         fiveBrainAnalysis
+      }
+    };
+  }
+
+  // 3b. Standalone Sentiment Analysis Endpoint (POST /api/sentiment/analyze)
+  if (pathname === '/api/sentiment/analyze' && method === 'POST') {
+    const { message, childId } = bodyData || {};
+    if (!message || typeof message !== 'string') {
+      return { status: 400, body: { error: 'message string is required' } };
+    }
+    const recentSnippet = childId
+      ? globalDataStore
+          .getMessages(childId)
+          .slice(-4)
+          .map(m => `${m.sender.toUpperCase()}: ${m.text}`)
+          .join('\n')
+      : undefined;
+
+    const sentimentAnalysis = await analyzeParentSentiment(message, recentSnippet);
+    return {
+      status: 200,
+      body: {
+        success: true,
+        sentimentAnalysis
       }
     };
   }
