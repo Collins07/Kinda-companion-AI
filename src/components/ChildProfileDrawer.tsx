@@ -26,6 +26,7 @@ interface ChildProfileDrawerProps {
   onSelectChild: (id: string) => void;
   onUpdateChild: (child: ChildProfile) => Promise<void>;
   onConsentToggle: (granted: boolean) => Promise<void>;
+  onResetSession?: (childId: string) => Promise<void>;
 }
 
 export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
@@ -33,10 +34,12 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
   childrenList,
   onSelectChild,
   onUpdateChild,
-  onConsentToggle
+  onConsentToggle,
+  onResetSession
 }) => {
   const [newSensitivity, setNewSensitivity] = useState('');
   const [newResource, setNewResource] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   const handleAddSensitivity = async () => {
     if (!newSensitivity.trim()) return;
@@ -74,34 +77,53 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
     await onUpdateChild(updated);
   };
 
+  const handleReset = async () => {
+    if (!onResetSession || isResetting) return;
+    setIsResetting(true);
+    await onResetSession(child.id);
+    setIsResetting(false);
+  };
+
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col space-y-4">
       {/* Header & Child Switcher */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex flex-wrap gap-2 items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center space-x-2">
           <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 flex items-center justify-center">
             <User className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Child Profile & Memory Context</h3>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Child Profile &amp; Memory Context</h3>
             <p className="text-[11px] text-slate-500">
-              Personalized developmental traits guiding the 5 brains
+              Family-reported traits &amp; triggers guiding companion support
             </p>
           </div>
         </div>
 
-        {/* Switch child selector */}
-        <select
-          value={child.id}
-          onChange={(e) => onSelectChild(e.target.value)}
-          className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs rounded-lg px-2.5 py-1 text-slate-800 dark:text-slate-100 font-semibold focus:outline-none"
-        >
-          {childrenList.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} ({c.caregiverName})
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center space-x-2">
+          {onResetSession && (
+            <button
+              type="button"
+              disabled={isResetting}
+              onClick={handleReset}
+              className="text-[11px] bg-slate-100 hover:bg-red-50 hover:text-red-700 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2.5 py-1 rounded-lg font-semibold text-slate-600 dark:text-slate-300 transition"
+              title="Clear this child's messages, observations, and bookings back to 0"
+            >
+              {isResetting ? 'Resetting...' : 'Reset Session'}
+            </button>
+          )}
+          <select
+            value={child.id}
+            onChange={(e) => onSelectChild(e.target.value)}
+            className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs rounded-lg px-2.5 py-1 text-slate-800 dark:text-slate-100 font-semibold focus:outline-none"
+          >
+            {childrenList.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.caregiverName})
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Child Summary Card */}
@@ -129,11 +151,11 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
           </span>
         </div>
 
-        {/* Sensory Sensitivities / Aversions */}
+        {/* External Sensory Triggers / Stimuli ONLY */}
         <div className="space-y-1.5">
           <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
             <Eye className="w-3.5 h-3.5 text-amber-500" />
-            <span>Sensory Sensitivities / Defensiveness:</span>
+            <span>Sensory Triggers / External Stimuli:</span>
           </span>
 
           <div className="flex flex-wrap gap-1.5">
@@ -159,7 +181,7 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
               type="text"
               value={newSensitivity}
               onChange={(e) => setNewSensitivity(e.target.value)}
-              placeholder="e.g. Red tile aversion, loud sudden sounds..."
+              placeholder="e.g. Bright red puzzle tiles, loud blender sounds, direct questioning..."
               className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-800 dark:text-slate-100"
             />
             <button
@@ -172,11 +194,11 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
           </div>
         </div>
 
-        {/* Strengths */}
+        {/* Known Preferences */}
         <div className="space-y-1.5 pt-1">
           <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
             <Heart className="w-3.5 h-3.5 text-rose-500" />
-            <span>Known Strengths & Preferences:</span>
+            <span>Known Interests &amp; Play Preferences:</span>
           </span>
 
           <div className="flex flex-wrap gap-1.5">
@@ -237,11 +259,11 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
           </div>
         </div>
 
-        {/* Active Milestones Tracked */}
+        {/* Active Goals */}
         <div className="space-y-1.5 pt-1">
           <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Active Milestones:</span>
+            <span>Tracked Goals:</span>
           </span>
 
           <div className="space-y-1">
@@ -266,15 +288,25 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
             <span>Kenya ODPC Child Data Protection</span>
           </span>
-          <span className="bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-200 font-bold px-2 py-0.5 rounded-full text-[10px]">
-            {child.odpcConsent.granted ? 'CONSENT ACTIVE' : 'CONSENT PENDING'}
+          <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${
+            child.odpcConsent.granted
+              ? 'bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-200'
+              : 'bg-amber-200 text-amber-900'
+          }`}>
+            {child.odpcConsent.granted ? 'CONSENT ACTIVE' : 'CONSENT REQUIRED FIRST'}
           </span>
         </div>
 
-        <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
-          In compliance with the Kenya Office of the Data Protection Commissioner (ODPC):
-          Parental permission is recorded before storing child profiles. Parents can view, export, or request deletion of personal developmental records at any time.
-        </p>
+        <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5">
+          <p><strong>Version:</strong> {child.odpcConsent.consentVersion || 'ODPC-KE-v2.1-2026'}</p>
+          <p><strong>Scope:</strong> {child.odpcConsent.consentScope || 'Caregiver developmental support, observation logging & specialist referral handoff'}</p>
+          {child.odpcConsent.grantedAt && (
+            <p>
+              <strong>Granted (EAT):</strong>{' '}
+              {new Date(child.odpcConsent.grantedAt).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi' })} EAT
+            </p>
+          )}
+        </div>
 
         <div className="flex items-center justify-between pt-1">
           <button
@@ -282,10 +314,10 @@ export const ChildProfileDrawer: React.FC<ChildProfileDrawerProps> = ({
             onClick={() => onConsentToggle(!child.odpcConsent.granted)}
             className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 underline"
           >
-            {child.odpcConsent.granted ? 'Revoke / Request Data Deletion' : 'Grant Parental Consent'}
+            {child.odpcConsent.granted ? 'Revoke Consent' : 'Record Caregiver Consent'}
           </button>
           <span className="text-[10px] text-slate-400">
-            ODPC Reg: Cap 411A Laws of Kenya
+            ODPC Cap 411A Laws of Kenya
           </span>
         </div>
       </div>

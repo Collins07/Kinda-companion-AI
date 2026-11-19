@@ -3,46 +3,112 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export type MilestoneDomain =
+  | 'cognitive'
+  | 'motor'
+  | 'speech'
+  | 'sensory'
+  | 'social'
+  | 'independence';
+
+export type IndependenceLevel = 'assisted' | 'partial' | 'independent';
+
+export interface DetectedMilestoneRecord {
+  id: string;
+  child_id: string;
+  domain: MilestoneDomain;
+  skillKey: string;
+  skillSummary: string;
+  milestone: true;
+  verbatim_quote: string;
+  reported_date: string; // YYYY-MM-DD
+  reportedDateDisplay: string; // e.g. "Nov 14, 2026"
+  independence_level: IndependenceLevel;
+  intervention_ref: string | null;
+  is_intervention_outcome: boolean;
+  is_progression: boolean;
+  progression_note?: string;
+  confidence: number;
+  needs_review: boolean;
+  message_id: string;
+  createdAt: string;
+}
+
 export interface ChildProfile {
   id: string;
   name: string;
-  caregiverName: string; // e.g. "Mama Brandon"
-  caregiverPhone: string; // e.g. "+254712345678"
-  ageMonths: number; // e.g. 48 (4 years)
+  caregiverName: string; // e.g. "Mama Nancy"
+  caregiverPhone: string; // e.g. "+254711223344"
+  ageMonths: number;
   gender: 'boy' | 'girl' | 'other';
-  developmentalStage: string; // e.g. "Early Preschool / Sensory Processing & Speech"
+  developmentalStage: string;
   strengths: string[];
-  sensitivities: string[]; // e.g. ["red-coded tiles aversion", "loud auditory transitions"]
+  sensitivities: string[]; // External stimuli/triggers ONLY (e.g. "loud sudden blender noises", "direct questioning")
   currentMilestones: {
-    domain: 'cognitive' | 'speech' | 'motor' | 'sensory' | 'social';
+    domain: MilestoneDomain;
     title: string;
+    skillKey?: string;
+    independenceLevel?: IndependenceLevel;
     status: 'in_progress' | 'achieved' | 'emerging';
     updatedAt: string;
   }[];
   favoriteActivities: string[];
-  activeKit?: string; // e.g. "Color & Shape Discovery Kit"
-  environmentContext?: string; // e.g. "Home in Kiambu with small veranda; limited commercial toys"
-  availableResources?: string[]; // e.g. ["Plastic bottle caps", "Maize flour", "Wooden spoons", "Cardboard boxes"]
+  activeKit?: string;
+  environmentContext?: string;
+  availableResources?: string[];
   subscriptionTier: 'free' | 'premium';
   subscriptionExpiry?: string;
   mpesaPhone?: string;
+  nudgesOptedOut?: boolean;
+  lastSuggestedProtocol?: {
+    cardId: string;
+    title: string;
+    domain: string;
+    suggestedAt: string;
+    status: 'pending_feedback' | 'completed' | 'needs_retry' | 'skipped';
+  };
   odpcConsent: {
     granted: boolean;
     grantedAt?: string;
     parentConfirmedIdentity: boolean;
+    consentVersion: string;
+    consentScope: string;
   };
   notes: string;
+}
+
+export interface ProfileUpdateProposal {
+  fact: string;
+  domain: MilestoneDomain | 'routine' | 'general';
+  evidence_quote: string;
+  status: 'new' | 'update' | 'contradiction' | 'milestone';
+  confidence: number;
+  needs_confirmation: boolean;
+  clarifying_question?: string;
 }
 
 export interface ObservationFeedback {
   id: string;
   childId: string;
   timestamp: string;
+  reportedDate?: string; // YYYY-MM-DD (handles retrospective cues like "yesterday" / "jana")
+  reportedDateDisplay?: string; // e.g. "Nov 14, 2026"
   rawParentMessage: string;
-  category: 'milestone' | 'sensory' | 'speech' | 'motor' | 'emotional' | 'concern' | 'general';
+  englishTranslation?: string;
+  category: 'milestone' | 'sensory' | 'speech' | 'motor' | 'emotional' | 'concern' | 'general' | 'cognitive' | 'independence';
+  domain?: MilestoneDomain;
   insightSummary: string;
-  developmentalImpact: string;
+  whyThisMatters: string;
   detectedEmotion: 'celebratory' | 'calm' | 'anxious' | 'exhausted' | 'frustrated' | 'neutral';
+  sourceMessageId?: string;
+  independenceLevel?: IndependenceLevel;
+  interventionRef?: string | null;
+  isInterventionOutcome?: boolean;
+  isProgression?: boolean;
+  needsConfirmation?: boolean;
+  needsReview?: boolean;
+  clarifyingQuestion?: string;
+  isContradiction?: boolean;
   verifiedByTherapist?: boolean;
 }
 
@@ -69,6 +135,9 @@ export interface FiveBrainAnalysis {
     caregiverMode: 'standard' | 'caregiver_rest' | 'comfort_first' | 'celebration';
     culturalContext: 'english' | 'swahili' | 'sheng_blended';
     sentimentAnalysis?: SentimentAnalysisResult;
+    domainScopeStatus?: 'in_scope' | 'out_of_scope_declined';
+    outOfScopeReason?: string;
+    isQueuedRetry?: boolean;
   };
   memoryBrain: {
     childId: string;
@@ -76,6 +145,8 @@ export interface FiveBrainAnalysis {
     recalledMemories: string[];
     newFeedbackExtracted?: string;
     milestoneUpdateDetected?: string;
+    profileUpdateProposals?: ProfileUpdateProposal[];
+    detectedMilestones?: DetectedMilestoneRecord[];
   };
   recommendationBrain: {
     ragMaterialsRetrieved: {
@@ -84,7 +155,8 @@ export interface FiveBrainAnalysis {
       domain: string;
       relevanceScore: number;
     }[];
-    recommendationSource?: 'clinical_library' | 'adapted_household_resources' | 'creative_everyday_activity' | 'none';
+    recommendationSource?: 'clinical_library' | 'adapted_household_resources' | 'none';
+    noCardAvailableReason?: string;
     suggestedActivity?: {
       title: string;
       domain: string;
@@ -96,15 +168,19 @@ export interface FiveBrainAnalysis {
   engagementBrain: {
     nudgeType?: 'quiet_parent_checkin' | 'organic_random_checkin' | 'responsive_dialogue' | 'rest_break';
     nudgeText?: string;
-    emotionalWarmthRating: number; // 1-10
   };
   escalationBrain: {
     therapistEscalationTriggered: boolean;
+    urgentRedFlagTriggered?: boolean;
     therapistSpecialtyNeeded?: string;
     recommendedTherapistName?: string;
     scheduledSessionTopic?: string;
+    appointmentStatus?: string;
+    requestedDate?: string;
+    requestedTime?: string;
     adminAlertTriggered: boolean;
     adminAlertReason?: string;
+    routedAdminContact?: string;
   };
 }
 
@@ -114,9 +190,10 @@ export interface ChatMessage {
   sender: 'parent' | 'kinda_care' | 'therapist' | 'system';
   text: string;
   timestamp: string;
-  timeDisplay: string; // e.g. "6:58 PM"
+  timeDisplay: string;
   replyToId?: string;
   replyToText?: string;
+  mediaType?: 'image' | 'audio' | 'video' | 'document';
   audioNote?: {
     durationSec: number;
     audioUrl?: string;
@@ -128,7 +205,17 @@ export interface ChatMessage {
 export interface EducationalMaterial {
   id: string;
   title: string;
-  domain: 'reading' | 'spelling' | 'drawing' | 'sensory_play' | 'singing' | 'motor';
+  domain:
+    | 'reading'
+    | 'spelling'
+    | 'drawing'
+    | 'sensory_play'
+    | 'singing'
+    | 'motor'
+    | 'caregiver_wellness'
+    | 'protection_referral';
+  sourceFramework?: string;
+  referralStandard?: string;
   ageRange: string;
   description: string;
   activities: string[];
@@ -143,12 +230,12 @@ export interface Therapist {
   name: string;
   title: string;
   specialty: 'Occupational Therapy (Sensory)' | 'Speech & Language Pathology' | 'Child & Adolescent Psychology' | 'Pediatric Physiotherapy' | 'Developmental Behavioral Pediatrics';
-  location: string; // e.g. "Kiambu", "Nairobi - Kilimani", "Thika Road"
+  location: string;
   languages: string[];
   onlineOrInPerson: 'Both' | 'Virtual Only' | 'In-Person Only';
-  rateKSh: number; // e.g. 2500
+  rateKSh: number;
   experienceYears: number;
-  credentials: string; // e.g. "MSc Paediatric OT (KU), Reg. KOTPA"
+  credentials: string;
   bio: string;
   availableDays: string[];
   avatar: string;
@@ -162,43 +249,96 @@ export interface TherapistAppointment {
   caregiverPhone: string;
   therapistId: string;
   therapistName: string;
-  date: string;
-  time: string;
+  date: string; // e.g. "To be chosen by therapist" or chosen calendar date
+  time: string; // e.g. "To be chosen by therapist" or chosen time
   mode: 'virtual_zoom' | 'whatsapp_call' | 'in_person';
   sessionTopic: string;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled';
+  status: 'requested_awaiting_confirmation' | 'confirmed' | 'completed' | 'cancelled';
+  statusLabel?: string; // e.g. "Requested, awaiting therapist confirmation"
   notes?: string;
 }
 
+export interface AdminEscalationAlert {
+  id: string;
+  childId: string;
+  childName: string;
+  caregiverName: string;
+  caregiverPhone: string;
+  routedToPhone: string;
+  reason: string;
+  urgency: 'urgent_red_flag' | 'admin_action_required' | 'booking_confirmation';
+  messageSummary: string;
+  timestampEAT: string;
+}
+
+export type DomainObservationLevel =
+  | 'Not enough information yet'
+  | 'Emerging'
+  | 'Practising'
+  | 'Consistent';
+
 export interface ProgressReport {
+  snapshotId: string;
   childId: string;
   childName: string;
   age: string;
   caregiverName: string;
   reportingPeriod: string;
+  generatedAt: string;
+  generatedAtEAT: string;
   totalConversations: number;
   totalObservationsLogged: number;
+  summaryParagraphs: string[]; // Max 200 words total, every sentence ends with [Date]
+  executiveSummaryParagraphs: string[]; // Shorter summary version, also strict [Date] cited
   domainProgress: {
     domain: string;
-    masteryPercentage: number;
-    status: 'Excelling' | 'On Track' | 'Needs Targeted Play' | 'Therapist Guided';
-    notes: string;
+    observationCount: number;
+    status: DomainObservationLevel;
+    notes: string; // Neutral descriptions with [Date] citations
   }[];
-  keyMilestonesAchieved: string[];
+  caregiverReportedMilestones: {
+    date: string;
+    domain: string;
+    milestone: string;
+    quote: string;
+    independenceLevel?: IndependenceLevel;
+    interventionRef?: string | null;
+    isProgression?: boolean;
+    progressionNote?: string;
+  }[];
   parentFeedbackHighlights: {
     date: string;
     parentQuote: string;
-    developmentalSignificance: string;
+    englishTranslation?: string;
+    whyThisMatters: string;
+    interventionRef?: string | null;
+    isInterventionOutcome?: boolean;
+    needsReview?: boolean;
   }[];
   sensoryProfileEvolution: {
-    trigger: string;
+    stimulus: string;
     initialReaction: string;
     currentReaction: string;
     nextSteps: string;
+    citationDates: string[];
   }[];
-  clinicalTherapistSummary: string;
-  upcomingMissionGoals: string[];
-  generatedAt?: string;
+  openQuestionsForSpecialist: string[];
+  consentsOnFile: {
+    granted: boolean;
+    consentVersion: string;
+    consentDateEAT: string;
+    consentScope: string;
+    parentConfirmedIdentity: boolean;
+  };
+  appointmentsOnFile: {
+    id: string;
+    therapistName: string;
+    requestedDate: string;
+    time: string;
+    topic: string;
+    status: string; // Matches APPOINTMENTS verbatim e.g. "Requested, awaiting therapist confirmation"
+  }[];
+  standingFooter: string;
   sharedWithSpecialists?: {
     therapistId: string;
     therapistName: string;

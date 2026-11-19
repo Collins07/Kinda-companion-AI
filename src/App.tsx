@@ -11,15 +11,8 @@ import {
   UserCheck,
   BookOpen,
   Github,
-  Sparkles,
   ShieldCheck,
-  CreditCard,
-  History,
-  Layers,
-  HeartHandshake,
-  CheckCircle2,
-  RefreshCw,
-  PhoneCall
+  History
 } from 'lucide-react';
 import {
   ChildProfile,
@@ -41,14 +34,13 @@ import { GitHubPublishModal } from './components/GitHubPublishModal';
 
 export default function App() {
   const [children, setChildren] = useState<ChildProfile[]>([]);
-  const [selectedChildId, setSelectedChildId] = useState<string>('child_joash');
+  const [selectedChildId, setSelectedChildId] = useState<string>('child_nancy');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [observations, setObservations] = useState<ObservationFeedback[]>([]);
   const [appointments, setAppointments] = useState<TherapistAppointment[]>([]);
   const [selectedAnalysis, setSelectedAnalysis] = useState<FiveBrainAnalysis | undefined>(undefined);
   const [activeRightTab, setActiveRightTab] = useState<'brains' | 'feedback' | 'profile'>('brains');
   const [isLoadingChat, setIsLoadingChat] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
 
   // Modals
   const [showReportModal, setShowReportModal] = useState(false);
@@ -58,25 +50,28 @@ export default function App() {
   const [showWhatsAppApiModal, setShowWhatsAppApiModal] = useState(false);
   const [showGitHubModal, setShowGitHubModal] = useState(false);
 
-  // Active child object
-  const activeChild = children.find(c => c.id === selectedChildId) || children[0] || {
-    id: 'child_joash',
-    name: 'Joash',
-    caregiverName: 'Mama Brandon',
-    caregiverPhone: '+254712345678',
-    ageMonths: 48,
-    gender: 'boy' as const,
-    developmentalStage: 'Early Preschool - Sensory & Attention',
-    strengths: ['Curious', 'Enjoys co-play with Mama'],
-    sensitivities: ['Red-coded tiles aversion / visual defensiveness'],
+  const activeChild: ChildProfile = children.find(c => c.id === selectedChildId) || children[0] || {
+    id: 'child_nancy',
+    name: 'Nancy',
+    caregiverName: 'Mama Nancy',
+    caregiverPhone: '+254711223344',
+    ageMonths: 42,
+    gender: 'girl',
+    developmentalStage: 'Early Preschool — Sensory Play & Everyday Communication',
+    strengths: ['Curious about music and rhythm', 'Enjoys sorting household cups'],
+    sensitivities: ['Bright red puzzle tiles', 'Loud sudden blender noises'],
     currentMilestones: [],
-    favoriteActivities: ['Color tiles puzzle'],
-    subscriptionTier: 'free' as const,
-    odpcConsent: { granted: true, parentConfirmedIdentity: true },
+    favoriteActivities: ['Clapping songs', 'Water pouring with cups'],
+    subscriptionTier: 'free',
+    odpcConsent: {
+      granted: false,
+      parentConfirmedIdentity: false,
+      consentVersion: 'ODPC-KE-v2.1-2026',
+      consentScope: 'Caregiver developmental support, observation logging & specialist referral handoff'
+    },
     notes: ''
   };
 
-  // Fetch initial children list
   const loadInitialData = async () => {
     try {
       const res = await fetch('/api/children');
@@ -84,12 +79,11 @@ export default function App() {
       if (data.children && data.children.length > 0) {
         setChildren(data.children);
       }
-    } catch (err) {
-      console.warn('Failed to load children profiles, using local seed:', err);
+    } catch {
+      // keep fallback state silently
     }
   };
 
-  // Fetch messages, observations, appointments when selected child changes
   const loadChildData = async (childId: string) => {
     try {
       const [msgRes, obsRes, apptRes] = await Promise.all([
@@ -106,16 +100,13 @@ export default function App() {
 
       if (msgData.messages) {
         setMessages(msgData.messages);
-        // Find latest message with 5-brain analysis
         const lastWithAnalysis = [...msgData.messages].reverse().find(m => m.fiveBrainAnalysis);
-        if (lastWithAnalysis) {
-          setSelectedAnalysis(lastWithAnalysis.fiveBrainAnalysis);
-        }
+        setSelectedAnalysis(lastWithAnalysis?.fiveBrainAnalysis);
       }
       if (obsData.observations) setObservations(obsData.observations);
       if (apptData.appointments) setAppointments(apptData.appointments);
-    } catch (err) {
-      console.warn('Error loading child messages/observations:', err);
+    } catch {
+      // ignore transient network errors
     }
   };
 
@@ -125,15 +116,27 @@ export default function App() {
 
   useEffect(() => {
     if (selectedChildId) {
-      setChatError(null);
+      setMessages([]);
+      setObservations([]);
+      setAppointments([]);
+      setSelectedAnalysis(undefined);
+      setProgressReportData(null);
       loadChildData(selectedChildId);
     }
   }, [selectedChildId]);
 
-  // Send message
+  // Poll softly if the latest reply came from queued retry holding state
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg?.fiveBrainAnalysis?.conversationBrain?.isQueuedRetry) return;
+    const timer = setInterval(() => {
+      loadChildData(activeChild.id);
+    }, 3500);
+    return () => clearInterval(timer);
+  }, [messages, activeChild.id]);
+
   const handleSendMessage = async (text: string, replyToId?: string) => {
     setIsLoadingChat(true);
-    setChatError(null);
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -146,28 +149,46 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (!res.ok || !data.success) {
-        setChatError(data.error || 'Failed to generate AI response.');
-        return;
+      if (res.ok && data.success) {
+        setMessages(prev => [...prev, data.parentMessage, data.replyMessage]);
+        if (data.fiveBrainAnalysis) {
+          setSelectedAnalysis(data.fiveBrainAnalysis);
+        }
+        await loadInitialData();
+        await loadChildData(activeChild.id);
       }
-      setMessages(prev => [...prev, data.parentMessage, data.replyMessage]);
-      if (data.fiveBrainAnalysis) {
-        setSelectedAnalysis(data.fiveBrainAnalysis);
-      }
-      // Refresh observations and appointments
-      await loadChildData(activeChild.id);
-    } catch (err: any) {
-      console.error('Chat error:', err);
-      setChatError(err?.message || 'Network error while reaching Kinda Care backend.');
+    } catch {
+      // Never expose raw API errors in caregiver UI
     } finally {
       setIsLoadingChat(false);
     }
   };
 
-  // Organic / Silence-Based Check-In Trigger
+  const handleSendMediaAttempt = async (mediaType: 'image' | 'audio' | 'video' | 'document') => {
+    setIsLoadingChat(true);
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          childId: activeChild.id,
+          mediaType
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMessages(prev => [...prev, data.parentMessage, data.replyMessage]);
+        if (data.fiveBrainAnalysis) setSelectedAnalysis(data.fiveBrainAnalysis);
+      }
+    } catch {
+      // silent
+    } finally {
+      setIsLoadingChat(false);
+    }
+  };
+
   const handleTriggerNudge = async (type: 'quiet_parent_checkin' | 'organic_random_checkin') => {
     setIsLoadingChat(true);
-    setChatError(null);
     try {
       const res = await fetch('/api/nudge/trigger', {
         method: 'POST',
@@ -178,20 +199,19 @@ export default function App() {
         })
       });
       const data = await res.json();
-      if (data.success && data.nudge) {
+      if (res.ok && data.success && data.nudge) {
         setMessages(prev => [...prev, data.nudge]);
         if (data.nudge.fiveBrainAnalysis) {
           setSelectedAnalysis(data.nudge.fiveBrainAnalysis);
         }
       }
-    } catch (err) {
-      console.error('Nudge error:', err);
+    } catch {
+      // silent
     } finally {
       setIsLoadingChat(false);
     }
   };
 
-  // M-Pesa STK Push Simulation
   const handleTriggerMpesa = async () => {
     try {
       const res = await fetch('/api/daraja/stkpush', {
@@ -205,34 +225,39 @@ export default function App() {
       });
       const data = await res.json();
       if (data.ResponseCode === '0') {
-        // Refresh child and messages
         await loadInitialData();
         await loadChildData(activeChild.id);
       }
-    } catch (err) {
-      console.error('M-Pesa STK push error:', err);
+    } catch {
+      // silent
     }
   };
 
-  // Generate Report (Kinda Care & Specialist Side Only)
-  const handleOpenReport = async () => {
+  const fetchChildProgressReport = async (childId: string): Promise<ProgressReport | null> => {
     try {
       const res = await fetch('/api/report/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ childId: activeChild.id })
+        body: JSON.stringify({ childId })
       });
       const data = await res.json();
       if (data.success && data.report) {
         setProgressReportData(data.report);
-        setShowReportModal(true);
+        return data.report as ProgressReport;
       }
-    } catch (err) {
-      console.error('Generate report error:', err);
+    } catch {
+      // silent
+    }
+    return null;
+  };
+
+  const handleOpenReport = async () => {
+    const report = await fetchChildProgressReport(activeChild.id);
+    if (report) {
+      setShowReportModal(true);
     }
   };
 
-  // Share Report with Specialist
   const handleShareWithSpecialist = async (
     childId: string,
     therapistId: string,
@@ -252,12 +277,11 @@ export default function App() {
           sharedWithSpecialists: data.sharedWithSpecialists
         });
       }
-    } catch (err) {
-      console.error('Share report error:', err);
+    } catch {
+      // silent
     }
   };
 
-  // Add observation manually
   const handleAddObservation = async (obs: Partial<ObservationFeedback>) => {
     try {
       const res = await fetch('/api/observations', {
@@ -268,12 +292,11 @@ export default function App() {
       if (res.ok) {
         await loadChildData(activeChild.id);
       }
-    } catch (err) {
-      console.error('Add observation error:', err);
+    } catch {
+      // silent
     }
   };
 
-  // Book appointment
   const handleBookAppointment = async (appt: Partial<TherapistAppointment>) => {
     try {
       const res = await fetch('/api/appointments', {
@@ -284,12 +307,30 @@ export default function App() {
       if (res.ok) {
         await loadChildData(activeChild.id);
       }
-    } catch (err) {
-      console.error('Book appointment error:', err);
+    } catch {
+      // silent
     }
   };
 
-  // Update Child Profile
+  const handleConfirmAppointment = async (
+    appointmentId: string,
+    confirmedDate: string,
+    confirmedTime: string
+  ) => {
+    try {
+      const res = await fetch('/api/appointments/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appointmentId, confirmedDate, confirmedTime })
+      });
+      if (res.ok) {
+        await loadChildData(activeChild.id);
+      }
+    } catch {
+      // silent
+    }
+  };
+
   const handleUpdateChild = async (updated: ChildProfile) => {
     try {
       const res = await fetch('/api/children', {
@@ -300,12 +341,11 @@ export default function App() {
       if (res.ok) {
         await loadInitialData();
       }
-    } catch (err) {
-      console.error('Update child error:', err);
+    } catch {
+      // silent
     }
   };
 
-  // Toggle ODPC Consent
   const handleConsentToggle = async (granted: boolean) => {
     try {
       const res = await fetch('/api/consent', {
@@ -316,8 +356,25 @@ export default function App() {
       if (res.ok) {
         await loadInitialData();
       }
-    } catch (err) {
-      console.error('Consent error:', err);
+    } catch {
+      // silent
+    }
+  };
+
+  const handleResetSession = async (childId: string) => {
+    try {
+      const res = await fetch('/api/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ childId })
+      });
+      if (res.ok) {
+        setProgressReportData(null);
+        await loadInitialData();
+        await loadChildData(childId);
+      }
+    } catch {
+      // silent
     }
   };
 
@@ -326,7 +383,6 @@ export default function App() {
       {/* Top Application Navbar */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 shadow-2xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between">
-          {/* Logo & Tagline */}
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-2xl bg-[#008069] text-white flex items-center justify-center font-black shadow-md shadow-emerald-600/20">
               <span className="text-sm font-black tracking-tight">KC</span>
@@ -335,11 +391,11 @@ export default function App() {
               <div className="flex items-center space-x-2">
                 <span className="text-base font-extrabold text-slate-900 dark:text-white">Kinda Care</span>
                 <span className="text-xs bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold px-2 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800">
-                  5-Brains WhatsApp AI
+                  Caregiver Companion
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 hidden sm:block">
-                Contextual Caregiver Companion • RAG Activity Intelligence • Therapist Escalation
+                WhatsApp Caregiver Support • Verified Activity Library • Specialist Bridge
               </p>
             </div>
           </div>
@@ -369,7 +425,7 @@ export default function App() {
               type="button"
               onClick={handleOpenReport}
               className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition"
-              title="Generate Cumulative Child Milestone Progress Report"
+              title="Open Caregiver Companion Progress Report"
             >
               <FileText className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Progress Report</span>
@@ -379,7 +435,7 @@ export default function App() {
               type="button"
               onClick={() => setShowTherapistModal(true)}
               className="bg-purple-50 dark:bg-purple-950/60 border border-purple-300 dark:border-purple-800 text-purple-800 dark:text-purple-300 hover:bg-purple-100 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition"
-              title="Kenyan Therapist Directory (Kiambu, Nairobi, Virtual)"
+              title="Kenyan Specialist Directory & Booking Requests"
             >
               <UserCheck className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Specialists</span>
@@ -389,7 +445,7 @@ export default function App() {
               type="button"
               onClick={() => setShowRAGModal(true)}
               className="bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-100 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition"
-              title="Verified RAG Educational Materials"
+              title="Verified Caregiver Support Library"
             >
               <BookOpen className="w-3.5 h-3.5" />
               <span className="hidden lg:inline">RAG Library</span>
@@ -399,7 +455,7 @@ export default function App() {
               type="button"
               onClick={() => setShowWhatsAppApiModal(true)}
               className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition"
-              title="Meta WhatsApp Cloud API Webhook Integration"
+              title="Meta WhatsApp Cloud API Webhook"
             >
               <MessageSquare className="w-3.5 h-3.5" />
               <span className="hidden xl:inline">WhatsApp API</span>
@@ -409,7 +465,7 @@ export default function App() {
               type="button"
               onClick={() => setShowGitHubModal(true)}
               className="bg-slate-900 hover:bg-black text-white px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition shadow-xs"
-              title="Publish and Push to GitHub"
+              title="Push to GitHub"
             >
               <Github className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">GitHub</span>
@@ -420,7 +476,6 @@ export default function App() {
 
       {/* Main Workspace Layout */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Interactive WhatsApp Simulator Matching Screenshot */}
         <div className="lg:col-span-5 flex flex-col items-center">
           <div className="w-full mb-2 flex items-center justify-between text-xs text-slate-500 px-1">
             <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
@@ -436,8 +491,8 @@ export default function App() {
             child={activeChild}
             messages={messages}
             onSendMessage={handleSendMessage}
+            onSendMediaAttempt={handleSendMediaAttempt}
             isLoading={isLoadingChat}
-            errorMessage={chatError}
             onSelectAnalysis={(analysis) => {
               setSelectedAnalysis(analysis);
               setActiveRightTab('brains');
@@ -448,7 +503,7 @@ export default function App() {
           />
         </div>
 
-        {/* Right Column: Kinda Care Care-Team & Specialist Console (Hidden from Parents) */}
+        {/* Right Column: Care-Team & Specialist Console */}
         <div className="lg:col-span-7 flex flex-col space-y-4">
           <div className="flex items-center justify-between text-xs px-1">
             <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
@@ -459,7 +514,7 @@ export default function App() {
               Internal Only • Hidden from Parent WhatsApp
             </span>
           </div>
-          {/* Sub Navigation Tabs for Right Panel */}
+
           <div className="flex items-center space-x-2 bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
             <button
               type="button"
@@ -471,7 +526,7 @@ export default function App() {
               }`}
             >
               <Brain className="w-4 h-4" />
-              <span>5-Brains Neural Monitor</span>
+              <span>5-Brain Monitors</span>
             </button>
 
             <button
@@ -484,7 +539,7 @@ export default function App() {
               }`}
             >
               <History className="w-4 h-4" />
-              <span>Parent Feedback Bank ({observations.length})</span>
+              <span>Observations ({observations.length})</span>
             </button>
 
             <button
@@ -497,11 +552,10 @@ export default function App() {
               }`}
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>Profile & ODPC Consent</span>
+              <span>Profile &amp; ODPC Consent</span>
             </button>
           </div>
 
-          {/* Active Tab Component */}
           {activeRightTab === 'brains' && (
             <FiveBrainsPanel
               analysis={selectedAnalysis}
@@ -527,25 +581,16 @@ export default function App() {
               onSelectChild={(id) => setSelectedChildId(id)}
               onUpdateChild={handleUpdateChild}
               onConsentToggle={handleConsentToggle}
+              onResetSession={handleResetSession}
             />
           )}
-
-          {/* Quick Context Card */}
-          <div className="bg-amber-50/70 dark:bg-amber-950/30 p-4 rounded-2xl border border-amber-200 dark:border-amber-900 text-xs text-amber-900 dark:text-amber-200 space-y-1.5">
-            <h4 className="font-bold flex items-center space-x-1.5 text-xs text-amber-950 dark:text-amber-100">
-              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-              <span>How Kinda Care AI Adapts in Real-Time:</span>
-            </h4>
-            <p className="text-[11.5px] leading-relaxed">
-              When <strong>Mama Brandon</strong> talks about <strong>Joash</strong>, the AI recalls his resistance to red-coded tiles ("Hiyo bado alizipangua") and schedules an occupational therapy session for Saturday with <strong>Dr. Wanjiku Mwangi</strong> in Kiambu. If she expresses exhaustion ("I'm exhausted"), it switches to <strong>Caregiver Rest Mode</strong> instead of forcing an activity. If <strong>Mama Bravin</strong> says he did a puzzle alone or <strong>Sharon</strong> sings complete words, it indexes those milestones directly into their longitudinal developmental report!
-            </p>
-          </div>
         </div>
       </main>
 
       {/* Modals */}
       <ProgressReportModal
         report={showReportModal ? progressReportData : null}
+        onRefreshReport={fetchChildProgressReport}
         onShareWithSpecialist={handleShareWithSpecialist}
         onClose={() => setShowReportModal(false)}
       />
@@ -555,6 +600,7 @@ export default function App() {
           child={activeChild}
           appointments={appointments}
           onBookAppointment={handleBookAppointment}
+          onConfirmAppointment={handleConfirmAppointment}
           onClose={() => setShowTherapistModal(false)}
         />
       )}

@@ -44,9 +44,9 @@ export const ObservationsTimeline: React.FC<ObservationsTimelineProps> = ({
       childId: child.id,
       rawParentMessage: newQuote,
       category,
-      insightSummary: `Parent observation logged: ${newQuote.slice(0, 50)}...`,
-      developmentalImpact: 'Logged in child profile to inform future conversations & report generator.',
-      detectedEmotion: 'celebratory'
+      insightSummary: `Caregiver observation logged: ${newQuote.slice(0, 60)}`,
+      whyThisMatters: 'Logged caregiver observation to inform home play support and specialist summaries.',
+      detectedEmotion: 'neutral'
     });
     setNewQuote('');
     setIsSubmitting(false);
@@ -57,11 +57,11 @@ export const ObservationsTimeline: React.FC<ObservationsTimelineProps> = ({
       case 'milestone':
         return <span className="bg-emerald-100 text-emerald-800 text-[11px] px-2 py-0.5 rounded font-semibold flex items-center space-x-1"><Sparkles className="w-3 h-3" /><span>Milestone</span></span>;
       case 'speech':
-        return <span className="bg-purple-100 text-purple-800 text-[11px] px-2 py-0.5 rounded font-semibold flex items-center space-x-1"><Music className="w-3 h-3" /><span>Speech & Words</span></span>;
+        return <span className="bg-purple-100 text-purple-800 text-[11px] px-2 py-0.5 rounded font-semibold flex items-center space-x-1"><Music className="w-3 h-3" /><span>Speech &amp; Words</span></span>;
       case 'sensory':
         return <span className="bg-amber-100 text-amber-800 text-[11px] px-2 py-0.5 rounded font-semibold flex items-center space-x-1"><Eye className="w-3 h-3" /><span>Sensory Modulation</span></span>;
       case 'motor':
-        return <span className="bg-blue-100 text-blue-800 text-[11px] px-2 py-0.5 rounded font-semibold flex items-center space-x-1"><Puzzle className="w-3 h-3" /><span>Motor & Play</span></span>;
+        return <span className="bg-blue-100 text-blue-800 text-[11px] px-2 py-0.5 rounded font-semibold flex items-center space-x-1"><Puzzle className="w-3 h-3" /><span>Motor &amp; Play</span></span>;
       default:
         return <span className="bg-slate-100 text-slate-800 text-[11px] px-2 py-0.5 rounded font-semibold flex items-center space-x-1"><Tag className="w-3 h-3" /><span>{cat}</span></span>;
     }
@@ -75,9 +75,9 @@ export const ObservationsTimeline: React.FC<ObservationsTimelineProps> = ({
             <History className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Long-Term Caregiver Feedback Bank</h3>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Caregiver Observation Bank</h3>
             <p className="text-[11px] text-slate-500">
-              Captured parent quotes that inform future conversation context and milestone reports for {child.name}
+              Dated caregiver-reported observations for {child.name}
             </p>
           </div>
         </div>
@@ -88,21 +88,21 @@ export const ObservationsTimeline: React.FC<ObservationsTimelineProps> = ({
           className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center space-x-1.5 shadow-xs transition"
         >
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Generate Full Report</span>
+          <span>Open Progress Report</span>
         </button>
       </div>
 
       {/* Manual Observation Quick Adder */}
       <form onSubmit={handleSubmit} className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 block">
-          Log Parent Observation / Milestone (e.g. "Today Bravin did a puzzle alone"):
+          Log Caregiver Observation for {child.name}:
         </span>
         <div className="flex gap-2">
           <input
             type="text"
             value={newQuote}
             onChange={(e) => setNewQuote(e.target.value)}
-            placeholder="e.g. For the last few days Sharon has been singing using complete words..."
+            placeholder={`e.g. Today ${child.name} stacked four cups alone without help...`}
             className="flex-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
           <select
@@ -131,7 +131,7 @@ export const ObservationsTimeline: React.FC<ObservationsTimelineProps> = ({
       <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
         {observations.length === 0 ? (
           <div className="text-center py-6 text-slate-400 text-xs">
-            No parent observations recorded yet. Chat in WhatsApp or log an observation above!
+            No caregiver observations logged yet. Once consent is granted and {child.caregiverName} shares updates, they will appear here.
           </div>
         ) : (
           observations.map((obs) => (
@@ -139,38 +139,63 @@ export const ObservationsTimeline: React.FC<ObservationsTimelineProps> = ({
               key={obs.id}
               className="bg-white dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs space-y-1.5"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {getCategoryBadge(obs.category)}
-                  <span className="text-[11px] text-slate-400">
-                    {new Date(obs.timestamp).toLocaleDateString('en-KE', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  <span className="text-[11px] font-medium text-slate-500">
+                    {obs.reportedDateDisplay ||
+                      new Date(obs.reportedDate || obs.timestamp).toLocaleDateString('en-KE', {
+                        timeZone: 'Africa/Nairobi',
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
                   </span>
+                  {obs.isProgression && (
+                    <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold">
+                      PROGRESSION
+                    </span>
+                  )}
+                  {obs.isInterventionOutcome && obs.interventionRef && (
+                    <span className="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-bold">
+                      Intervention: {obs.interventionRef}
+                    </span>
+                  )}
+                  {obs.needsReview && (
+                    <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">
+                      OT Review Queue
+                    </span>
+                  )}
                 </div>
                 {obs.verifiedByTherapist && (
                   <span className="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-medium flex items-center space-x-0.5">
                     <CheckCircle className="w-3 h-3 text-purple-600" />
-                    <span>Therapist Reviewed</span>
+                    <span>Specialist Reviewed</span>
                   </span>
                 )}
               </div>
 
-              {/* Exact Parent Quote */}
               <div className="flex items-start space-x-2 bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-lg border-l-3 border-emerald-500">
                 <Quote className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5 opacity-70" />
                 <p className="text-xs italic text-slate-800 dark:text-slate-200 font-medium leading-relaxed">
-                  "{obs.rawParentMessage}"
+                  &quot;{obs.rawParentMessage}&quot;
                 </p>
               </div>
 
-              {/* Extracted Developmental Insight */}
+              {obs.englishTranslation && (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                  <strong>Translation: </strong>{obs.englishTranslation}
+                </div>
+              )}
+
               <div className="text-[11.5px] text-slate-600 dark:text-slate-300">
-                <strong className="text-slate-700 dark:text-slate-200">AI Developmental Insight: </strong>
+                <strong className="text-slate-700 dark:text-slate-200">Observation: </strong>
                 {obs.insightSummary}
               </div>
 
-              {obs.developmentalImpact && (
+              {obs.whyThisMatters && (
                 <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
-                  Impact: {obs.developmentalImpact}
+                  Why this matters: {obs.whyThisMatters}
                 </div>
               )}
             </div>

@@ -149,6 +149,79 @@ function heuristicSentimentFallback(messageText: string): SentimentAnalysisResul
   };
 }
 
+async function callSentimentWithTimeoutAndRetry(
+  messageText: string,
+  recentConversationSnippet?: string
+) {
+  const ai = getAiClient();
+  const maxRetries = 3;
+  const backoffDelays = [1000, 3000, 9000];
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model: SENTIMENT_MODEL,
+          contents: `Analyze the emotional sentiment, stress level, and tone needs of this incoming WhatsApp message from a Kenyan parent/caregiver.\n\nRecent Context:\n${recentConversationSnippet || 'None'}\n\nIncoming Parent Message:\n"${messageText}"`,
+          config: {
+            systemInstruction: `You are a caregiver sentiment analyzer for Kinda Care across English, Swahili, and Kenyan Sheng.
+Classify the parent's sentiment accurately:
+- "celebratory": sharing a child's milestone, win, pride, or exciting progress.
+- "exhausted": expressing physical or mental tiredness/fatigue (e.g. "I'm tired", "exhausted", "nimechoka", postponing due to fatigue).
+- "stressed_overwhelmed": expressing stress, burnout, or feeling overwhelmed by parenting or daily life.
+- "anxious_worried": expressing fear, worry, or anxiety about their child.
+- "frustrated": expressing annoyance, anger, or feeling stuck.
+- "calm_positive": calm, appreciative, hopeful, or relaxed sharing.
+- "neutral": informational question, short greeting, correction, or scheduling reply.`,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                sentiment: {
+                  type: Type.STRING,
+                  description: 'One of: celebratory, stressed_overwhelmed, exhausted, anxious_worried, frustrated, calm_positive, neutral'
+                },
+                polarityScore: {
+                  type: Type.NUMBER,
+                  description: 'Sentiment polarity from -1.0 to 1.0.'
+                },
+                stressLevel: {
+                  type: Type.STRING,
+                  description: 'One of: low, moderate, high'
+                },
+                confidence: {
+                  type: Type.NUMBER,
+                  description: 'Confidence score between 0.0 and 1.0.'
+                },
+                emotionalCues: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: 'Short 2-5 word phrases citing cues found in the message.'
+                }
+              },
+              required: ['sentiment', 'polarityScore', 'stressLevel', 'confidence', 'emotionalCues']
+            }
+          }
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Sentiment analysis timed out after 25000ms')), 25000)
+        )
+      ]);
+      return response;
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      const isRetryable =
+        /503|429|timeout|timed out|unavailable|overloaded|resource_exhausted/i.test(msg);
+      if (!isRetryable || attempt === maxRetries) {
+        throw err;
+      }
+      const jitter = Math.floor(Math.random() * 400);
+      await new Promise(resolve => setTimeout(resolve, backoffDelays[attempt] + jitter));
+    }
+  }
+  throw new Error('Sentiment analysis failed after retries');
+}
+
 export async function analyzeParentSentiment(
   messageText: string,
   recentConversationSnippet?: string
@@ -158,51 +231,7 @@ export async function analyzeParentSentiment(
   }
 
   try {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: SENTIMENT_MODEL,
-      contents: `Analyze the emotional sentiment, stress level, and tone needs of this incoming WhatsApp message from a Kenyan parent/caregiver.\n\nRecent Context:\n${recentConversationSnippet || 'None'}\n\nIncoming Parent Message:\n"${messageText}"`,
-      config: {
-        systemInstruction: `You are a pediatric clinical sentiment analyzer specializing in parent/caregiver emotional states across English, Swahili, and Kenyan Sheng.
-Classify the parent's sentiment accurately:
-- "celebratory": sharing a child's milestone, breakthrough, pride, or exciting progress (e.g. completing a puzzle alone, singing full words, joyful news).
-- "exhausted": expressing physical or mental tiredness/fatigue (e.g. "I'm tired", "exhausted", "nimechoka", postponing due to fatigue).
-- "stressed_overwhelmed": expressing stress, burnout, feeling overwhelmed by parenting or daily life.
-- "anxious_worried": expressing fear, worry, or anxiety about their child's development or behavior.
-- "frustrated": expressing anger, annoyance, or defeat (e.g. "nothing works", "he keeps refusing").
-- "calm_positive": calm, appreciative, hopeful, or relaxed sharing.
-- "neutral": purely informational question, simple correction ("sorry i meant joash"), or scheduling reply.`,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            sentiment: {
-              type: Type.STRING,
-              description: 'One of: celebratory, stressed_overwhelmed, exhausted, anxious_worried, frustrated, calm_positive, neutral'
-            },
-            polarityScore: {
-              type: Type.NUMBER,
-              description: 'Sentiment polarity from -1.0 (very distressed/stressed) to 1.0 (very joyful/celebratory).'
-            },
-            stressLevel: {
-              type: Type.STRING,
-              description: 'One of: low, moderate, high'
-            },
-            confidence: {
-              type: Type.NUMBER,
-              description: 'Confidence score between 0.0 and 1.0.'
-            },
-            emotionalCues: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: 'Short 2-5 word phrases citing the emotional cues found in the message.'
-            }
-          },
-          required: ['sentiment', 'polarityScore', 'stressLevel', 'confidence', 'emotionalCues']
-        }
-      }
-    });
-
+    const response = await callSentimentWithTimeoutAndRetry(messageText, recentConversationSnippet);
     const raw = (response.text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     const parsed = JSON.parse(raw);
 

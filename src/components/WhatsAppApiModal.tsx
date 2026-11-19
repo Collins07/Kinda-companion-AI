@@ -69,17 +69,17 @@ export const WhatsAppApiModal: React.FC<WhatsAppApiModalProps> = ({ onClose }) =
                 value: {
                   messaging_product: 'whatsapp',
                   metadata: {
-                    display_phone_number: '+254712345678',
+                    display_phone_number: '+254711223344',
                     phone_number_id: 'sample_phone_id'
                   },
-                  contacts: [{ profile: { name: 'Mama Brandon' }, wa_id: '254712345678' }],
+                  contacts: [{ profile: { name: 'Mama Nancy' }, wa_id: '254711223344' }],
                   messages: [
                     {
-                      from: '+254712345678',
+                      from: '+254711223344',
                       id: 'wamid.HBgSAMPLE' + Date.now(),
                       timestamp: Math.floor(Date.now() / 1000).toString(),
                       type: 'text',
-                      text: { body: 'He is enjoying the color puzzle as long as I play with him.' }
+                      text: { body: 'Yes, I consent. Nancy played with the cups today.' }
                     }
                   ]
                 },
@@ -252,7 +252,7 @@ export const WhatsAppApiModal: React.FC<WhatsAppApiModalProps> = ({ onClose }) =
                 <strong>Add Environment Variables:</strong> Set <code className="font-mono">WHATSAPP_TOKEN</code> and <code className="font-mono">WHATSAPP_PHONE_NUMBER_ID</code> in your server environment.
               </li>
               <li>
-                <strong>Send a WhatsApp message:</strong> From any phone, text your WhatsApp number. The server automatically routes it through the 5 brains, updates child memory, and responds in seconds!
+                <strong>Send a WhatsApp message:</strong> From any phone, text your WhatsApp number. The server automatically routes it through the caregiver companion engine, updates child memory, and responds in seconds!
               </li>
             </ol>
           </div>

@@ -14,17 +14,10 @@ import {
   Mic,
   Send,
   CheckCheck,
-  Brain,
   Sparkles,
   HeartHandshake,
-  Calendar,
-  AlertTriangle,
-  Play,
-  RotateCcw,
-  Zap,
-  Coffee,
-  MessageSquareHeart,
-  CreditCard
+  CreditCard,
+  ClipboardList
 } from 'lucide-react';
 import { ChatMessage, ChildProfile, FiveBrainAnalysis } from '../types';
 
@@ -32,8 +25,8 @@ interface WhatsAppPhoneProps {
   child: ChildProfile;
   messages: ChatMessage[];
   onSendMessage: (text: string, replyToId?: string) => Promise<void>;
+  onSendMediaAttempt: (mediaType: 'image' | 'audio' | 'video' | 'document') => Promise<void>;
   isLoading: boolean;
-  errorMessage?: string | null;
   onSelectAnalysis: (analysis?: FiveBrainAnalysis) => void;
   onOpenTherapist: () => void;
   onTriggerNudge: (type: 'quiet_parent_checkin' | 'organic_random_checkin') => void;
@@ -44,8 +37,8 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
   child,
   messages,
   onSendMessage,
+  onSendMediaAttempt,
   isLoading,
-  errorMessage,
   onSelectAnalysis,
   onOpenTherapist,
   onTriggerNudge,
@@ -73,12 +66,12 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
     <div className="flex flex-col items-center justify-center w-full max-w-[430px] mx-auto">
       {/* Phone Case Frame */}
       <div className="w-full bg-[#111b21] rounded-[44px] p-3 shadow-2xl border-4 border-slate-700/80 ring-1 ring-slate-800">
-        {/* Notch / Speaker bar */}
+        {/* Notch / Status bar */}
         <div className="flex items-center justify-between px-6 pt-1 pb-2 text-slate-400 text-xs select-none">
           <span className="font-semibold text-slate-200">9:14</span>
           <div className="w-20 h-4 bg-black rounded-full mx-auto" />
           <div className="flex items-center space-x-1.5 text-[11px] text-slate-300">
-            <span>0.83 KB/s</span>
+            <span>4G</span>
             <span>📶</span>
             <span>96%</span>
           </div>
@@ -97,34 +90,30 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
                 <ArrowLeft className="w-5 h-5" />
               </button>
 
-              {/* Avatar with Kinda Play Wooden Logo */}
               <div className="relative">
                 <div className="w-10 h-10 rounded-full bg-[#f6eee3] flex items-center justify-center border border-amber-300/60 overflow-hidden shadow">
                   <div className="text-center leading-none">
-                    <span className="text-[10px] font-black tracking-tighter text-amber-900 block">kinda</span>
+                    <span className="text-[10px] font-black tracking-tighter text-amber-900 block">Kinda</span>
                     <span className="text-[11px] font-extrabold text-amber-800 block">Care</span>
                   </div>
                 </div>
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 border-2 border-[#008069] rounded-full"></span>
               </div>
 
-              {/* Title & Status */}
               <div className="flex flex-col">
                 <div className="flex items-center space-x-1">
                   <span className="font-semibold text-[15px] leading-snug">Kinda Care</span>
-                  <span className="text-[10px] bg-emerald-500/30 text-emerald-100 font-medium px-1.5 py-0.2 rounded">AI</span>
                 </div>
                 <span className="text-xs text-emerald-100/90 font-light">online</span>
               </div>
             </div>
 
-            {/* Header Action Icons */}
             <div className="flex items-center space-x-4 pr-1 text-white/95">
               <button
                 type="button"
                 onClick={onOpenTherapist}
                 className="hover:text-emerald-200 transition"
-                title="Therapist Directory & Virtual Call"
+                title="Therapist Directory & Request Call"
               >
                 <Phone className="w-5 h-5" />
               </button>
@@ -132,21 +121,21 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
                 type="button"
                 onClick={onOpenTherapist}
                 className="hover:text-emerald-200 transition"
-                title="Schedule Video Session"
+                title="Request Video Consultation"
               >
                 <Video className="w-5 h-5" />
               </button>
               <button
                 type="button"
                 className="hover:text-emerald-200 transition"
-                title="WhatsApp Conversation Options"
+                title="Conversation Options"
               >
                 <MoreVertical className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          {/* Subheader Context Ribbon (Child active badge) */}
+          {/* Subheader Context Ribbon */}
           <div className="bg-[#00705c] dark:bg-[#182229] px-3 py-1 flex items-center justify-between text-[11px] text-emerald-100 border-t border-emerald-600/30">
             <span className="truncate">
               Caregiver: <strong className="text-white">{child.caregiverName}</strong> • Child: <strong className="text-white">{child.name}</strong> ({Math.floor(child.ageMonths / 12)}y)
@@ -165,21 +154,27 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
               backgroundPosition: '0 0, 12px 12px'
             }}
           >
-            {/* Encryption notice banner */}
+            {/* Notice banner */}
             <div className="flex justify-center my-1">
               <div className="bg-[#ffeecd] dark:bg-[#1f2c34] text-[#54656f] dark:text-[#8696a0] text-[10.5px] text-center px-3 py-1 rounded-lg shadow-xs max-w-[85%] border border-amber-200/50">
-                🔒 Messages to Kinda Care are protected under Kenya ODPC child data guidelines. Long-term memory active.
+                🔒 Kinda Care caregiver companion chat • Text messages only • Kenya ODPC protected
               </div>
             </div>
 
-            {/* Date divider */}
             <div className="flex justify-center my-1">
               <span className="bg-white/80 dark:bg-[#182229]/80 backdrop-blur-xs text-[#54656f] dark:text-[#8696a0] text-[11px] font-medium px-2.5 py-0.5 rounded-md shadow-xs">
                 TODAY
               </span>
             </div>
 
-            {/* Message list */}
+            {messages.length === 0 && !isLoading && (
+              <div className="flex justify-center pt-6">
+                <div className="bg-white/90 dark:bg-[#202c33] text-slate-600 dark:text-slate-300 text-xs text-center px-4 py-3 rounded-xl shadow-xs max-w-[85%] border border-slate-200/80 dark:border-slate-700">
+                  Fresh conversation ready for <strong>{child.caregiverName}</strong> &amp; <strong>{child.name}</strong>. Say hello below to start consent and live support!
+                </div>
+              </div>
+            )}
+
             {messages.map((msg) => {
               const isUser = msg.sender === 'parent';
               return (
@@ -194,7 +189,6 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
                         : 'bg-white dark:bg-[#202c33] text-[#111b21] dark:text-[#e9edef] rounded-tl-none border border-slate-200/60 dark:border-transparent'
                     }`}
                   >
-                    {/* Quoted reply header if exists */}
                     {msg.replyToText && (
                       <div className="mb-1.5 pl-2 border-l-4 border-emerald-600 bg-black/5 dark:bg-black/20 rounded py-0.5 text-xs text-[#54656f] dark:text-[#8696a0]">
                         <p className="font-semibold text-emerald-700 dark:text-emerald-400 text-[11px]">Kinda Care</p>
@@ -202,20 +196,18 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
                       </div>
                     )}
 
-                    {/* Message text */}
                     <div className="whitespace-pre-wrap break-words">{msg.text}</div>
 
-                    {/* Footer: timestamp + checkmarks + 5-brain inspection button */}
                     <div className="flex items-center justify-end space-x-1.5 mt-1 select-none">
                       {msg.fiveBrainAnalysis && (
                         <button
                           type="button"
                           onClick={() => onSelectAnalysis(msg.fiveBrainAnalysis)}
                           className="text-[10px] bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium flex items-center space-x-0.5 transition"
-                          title="View 5-Brains Neural Rationale"
+                          title="Inspect 5-Brain Monitors"
                         >
-                          <Brain className="w-2.5 h-2.5" />
-                          <span>5-Brains</span>
+                          <ClipboardList className="w-2.5 h-2.5" />
+                          <span>5-Brain Monitor</span>
                         </button>
                       )}
 
@@ -223,13 +215,10 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
                         {msg.timeDisplay || 'Just now'}
                       </span>
 
-                      {isUser && (
-                        <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
-                      )}
+                      {isUser && <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />}
                     </div>
                   </div>
 
-                  {/* Quick reply trigger on hover */}
                   <button
                     type="button"
                     onClick={() => setReplyingTo(msg)}
@@ -241,25 +230,16 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
               );
             })}
 
-            {/* Bot Typing Indicator */}
             {isLoading && (
               <div className="flex items-start">
                 <div className="bg-white dark:bg-[#202c33] rounded-xl rounded-tl-none px-3.5 py-2 shadow-sm border border-slate-200/60 flex items-center space-x-1.5 text-xs text-slate-500">
-                  <span className="font-medium text-emerald-600">Kinda Care is thinking</span>
+                  <span className="font-medium text-emerald-600">Kinda Care is typing</span>
                   <div className="flex space-x-1">
                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce"></span>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* Error banner if API failed */}
-            {errorMessage && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded-xl flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
-                <span>{errorMessage}</span>
               </div>
             )}
 
@@ -285,61 +265,59 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
             </div>
           )}
 
-          {/* WhatsApp Bottom Chat Input Bar */}
+          {/* Bottom Input Bar — Media icons trigger clear unsupported-media notice */}
           <form
             onSubmit={handleSend}
             className="bg-[#f0f2f5] dark:bg-[#202c33] p-2 flex items-center space-x-2 border-t border-slate-200 dark:border-slate-700"
           >
-            {/* Input Pill */}
             <div className="flex-1 bg-white dark:bg-[#2a3942] rounded-full flex items-center px-3 py-1.5 shadow-sm border border-slate-200 dark:border-transparent">
               <span className="text-slate-400 mr-2 text-base select-none">😊</span>
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Message"
+                placeholder="Type a message..."
                 className="w-full bg-transparent focus:outline-none text-[13.5px] text-[#111b21] dark:text-[#d1d7db] placeholder-slate-400"
               />
               <button
                 type="button"
+                disabled={isLoading}
+                onClick={() => onSendMediaAttempt('document')}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 mx-1.5"
-                title="Attach Photo or Document"
+                title="Try Document Upload (Unsupported Check)"
               >
                 <Paperclip className="w-4 h-4" />
               </button>
               <button
                 type="button"
+                disabled={isLoading}
+                onClick={() => onSendMediaAttempt('image')}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                title="Camera"
+                title="Try Photo / Video Upload (Unsupported Check)"
               >
                 <Camera className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Circular Send / Voice Note Button */}
             <button
               type={inputText.trim() ? 'submit' : 'button'}
               disabled={isLoading}
+              onClick={inputText.trim() ? undefined : () => onSendMediaAttempt('audio')}
               className="w-10 h-10 rounded-full bg-[#00a884] hover:bg-[#02906f] active:scale-95 text-white flex items-center justify-center shadow-md transition shrink-0"
-              title={inputText.trim() ? 'Send Message' : 'Hold for Voice Note'}
+              title={inputText.trim() ? 'Send Message' : 'Try Voice Note (Unsupported Check)'}
             >
-              {inputText.trim() ? (
-                <Send className="w-4 h-4 ml-0.5" />
-              ) : (
-                <Mic className="w-4 h-4" />
-              )}
+              {inputText.trim() ? <Send className="w-4 h-4 ml-0.5" /> : <Mic className="w-4 h-4" />}
             </button>
           </form>
         </div>
 
-        {/* Bottom home indicator line */}
         <div className="w-32 h-1 bg-slate-500/60 rounded-full mx-auto mt-2.5 mb-1" />
       </div>
 
-      {/* Outbound Companion Check-In Simulator (Non-fixed, Organic / Silence-Based) */}
+      {/* Outbound Companion Check-In Controls */}
       <div className="w-full mt-3 flex flex-col items-center space-y-1.5 text-xs">
         <span className="text-[11px] text-slate-500 font-medium">
-          Simulate Kinda Care Initiating Check-In (Non-fixed / Organic):
+          Simulate Proactive Companion Check-In (Non-fixed / Organic):
         </span>
         <div className="flex flex-wrap gap-2 justify-center items-center">
           <button
@@ -359,7 +337,7 @@ export const WhatsAppPhone: React.FC<WhatsAppPhoneProps> = ({
             className="bg-sky-100 dark:bg-sky-900/40 text-sky-900 dark:text-sky-200 hover:bg-sky-200 disabled:opacity-50 px-3 py-1.5 rounded-lg border border-sky-300 font-medium flex items-center space-x-1.5 transition"
           >
             <HeartHandshake className="w-3.5 h-3.5 text-sky-600" />
-            <span>Organic Random Check-In</span>
+            <span>Organic Check-In</span>
           </button>
 
           <button

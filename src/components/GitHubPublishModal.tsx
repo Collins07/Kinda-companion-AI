@@ -57,10 +57,10 @@ git push -u origin main`;
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Push & Publish Kinda Care AI to GitHub
+                Push &amp; Publish Kinda Care to GitHub
               </h2>
               <p className="text-xs text-slate-500">
-                Deploy your 5-Brain WhatsApp service, RAG library, and progress report engine to your repository
+                Deploy your WhatsApp companion service, RAG library, and progress report engine to your repository
               </p>
             </div>
           </div>
@@ -78,10 +78,10 @@ git push -u origin main`;
           <div className="bg-blue-50 dark:bg-blue-950/40 p-4 rounded-2xl border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 space-y-1.5">
             <h4 className="font-bold text-xs flex items-center space-x-1.5">
               <ShieldCheck className="w-4 h-4 text-blue-600" />
-              <span>Full Production Repository Built & Ready</span>
+              <span>Full Production Repository Built &amp; Ready</span>
             </h4>
             <p className="text-[11.5px] leading-relaxed">
-              All backend endpoints (<code className="font-mono text-blue-800 dark:text-blue-300">/api/webhook/whatsapp</code>, <code className="font-mono">/api/chat</code>, <code className="font-mono">/api/report/generate</code>), the Gemini 5-brain engine, Kenyan therapist directory, RAG knowledge base, and React WhatsApp simulator are fully configured and ready to be pushed to your GitHub account.
+              All backend endpoints (<code className="font-mono text-blue-800 dark:text-blue-300">/api/webhook/whatsapp</code>, <code className="font-mono">/api/chat</code>, <code className="font-mono">/api/report/generate</code>), the RAG caregiver guide, specialist directory, and React WhatsApp simulator are configured and ready for GitHub.
             </p>
           </div>
 
@@ -126,16 +126,16 @@ git push -u origin main`;
           {/* Repository Structure Overview */}
           <div className="space-y-2">
             <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[11px]">
-              What's Included in Your Repository:
+              What&apos;s Included in Your Repository:
             </h4>
             <div className="grid grid-cols-2 gap-2 text-[11px]">
               <div className="bg-slate-50 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                 <strong className="text-slate-900 dark:text-white block">📡 Meta WhatsApp Webhook</strong>
-                <span className="text-slate-500">Cloud API verification & event processing</span>
+                <span className="text-slate-500">Cloud API verification &amp; event processing</span>
               </div>
               <div className="bg-slate-50 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                <strong className="text-slate-900 dark:text-white block">🧠 5-Brains Gemini Engine</strong>
-                <span className="text-slate-500">Conversation, Memory, RAG, Nudge, Escalation</span>
+                <strong className="text-slate-900 dark:text-white block">💬 Caregiver Companion Engine</strong>
+                <span className="text-slate-500">Consent gate, RAG cards, safety triage</span>
               </div>
               <div className="bg-slate-50 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                 <strong className="text-slate-900 dark:text-white block">📊 Progress Report Engine</strong>

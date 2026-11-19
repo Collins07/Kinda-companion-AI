@@ -4,10 +4,24 @@
  */
 
 import { globalDataStore } from './dataStore';
-import { processCaregiverMessage } from './geminiService';
+import { processCaregiverMessage, handleMediaAttachmentAttempt } from './geminiService';
+import { enforceMetaComplianceOnOutput, getAdminRoutingPhone } from './metaCompliance';
 import { ChatMessage } from '../types';
 
 export const DEFAULT_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'kinda_care_webhook_secret_2026';
+
+// Deduplicate retried Meta WhatsApp webhook deliveries by wamid
+const processedMessageIds = new Set<string>();
+function markMessageProcessed(messageId: string): boolean {
+  if (!messageId) return true;
+  if (processedMessageIds.has(messageId)) return false;
+  processedMessageIds.add(messageId);
+  if (processedMessageIds.size > 1000) {
+    const oldest = processedMessageIds.values().next().value;
+    if (oldest) processedMessageIds.delete(oldest);
+  }
+  return true;
+}
 
 export interface WhatsAppWebhookEvent {
   object: string;
@@ -51,9 +65,10 @@ export interface WhatsAppWebhookEvent {
 export async function sendOutboundWhatsAppMessage(toPhone: string, text: string): Promise<boolean> {
   const token = process.env.WHATSAPP_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const { compliantText } = enforceMetaComplianceOnOutput(text, { stripInternalTagsForWhatsApp: true });
 
   if (!token || !phoneNumberId) {
-    console.log(`[WhatsApp Outbound Mock/Dev] To: ${toPhone} | Message: ${text.slice(0, 80)}...`);
+    console.log(`[WhatsApp Outbound Dev] To: ${toPhone} | Message: ${compliantText.slice(0, 90)}...`);
     return true;
   }
 
@@ -62,7 +77,7 @@ export async function sendOutboundWhatsAppMessage(toPhone: string, text: string)
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -70,8 +85,9 @@ export async function sendOutboundWhatsAppMessage(toPhone: string, text: string)
         recipient_type: 'individual',
         to: toPhone.replace(/[^0-9]/g, ''),
         type: 'text',
-        text: { preview_url: false, body: text }
-      })
+        text: { preview_url: false, body: compliantText }
+      }),
+      signal: AbortSignal.timeout(10000)
     });
 
     const resData = await response.json();
@@ -79,7 +95,6 @@ export async function sendOutboundWhatsAppMessage(toPhone: string, text: string)
       console.error('[WhatsApp Cloud API Error]', resData);
       return false;
     }
-    console.log('[WhatsApp Cloud API Success]', resData);
     return true;
   } catch (err) {
     console.error('[WhatsApp Cloud API Network Error]', err);
@@ -95,7 +110,7 @@ export async function handleWhatsAppIncomingWebhook(payload: WhatsAppWebhookEven
   const details: string[] = [];
   let repliesCount = 0;
 
-  if (payload.object !== 'whatsapp_business_account' || !payload.entry) {
+  if (!payload || payload.object !== 'whatsapp_business_account' || !Array.isArray(payload.entry)) {
     return { success: false, repliesGenerated: 0, details: ['Ignored non-whatsapp event'] };
   }
 
@@ -105,9 +120,49 @@ export async function handleWhatsAppIncomingWebhook(payload: WhatsAppWebhookEven
       if (!messages || messages.length === 0) continue;
 
       for (const msg of messages) {
-        const from = msg.from;
-        let incomingText = msg.text?.body || '';
+        if (msg.id && !markMessageProcessed(msg.id)) {
+          details.push(`Skipped duplicate webhook message ${msg.id}`);
+          continue;
+        }
 
+        const from = msg.from;
+        let child = globalDataStore.getChildByPhone(from);
+        if (!child) {
+          child = globalDataStore.getChild('child_nancy') || globalDataStore.getAllChildren()[0];
+        }
+
+        const now = new Date();
+        const mediaTypes = ['image', 'audio', 'voice', 'video', 'document', 'sticker'];
+        if (mediaTypes.includes(msg.type)) {
+          const mappedType: 'image' | 'audio' | 'video' | 'document' =
+            msg.type === 'audio' || msg.type === 'voice'
+              ? 'audio'
+              : msg.type === 'video'
+              ? 'video'
+              : msg.type === 'document'
+              ? 'document'
+              : 'image';
+
+          const parentMsg: ChatMessage = {
+            id: msg.id || 'msg_media_in_' + Date.now(),
+            childId: child.id,
+            sender: 'parent',
+            text: `[Attempted to send ${mappedType} attachment]`,
+            mediaType: mappedType,
+            timestamp: now.toISOString(),
+            timeDisplay: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+            status: 'read'
+          };
+          globalDataStore.addMessage(parentMsg);
+
+          const { replyMessage } = await handleMediaAttachmentAttempt(child.id, mappedType, parentMsg.id);
+          await sendOutboundWhatsAppMessage(child.caregiverPhone || from, replyMessage.text);
+          repliesCount++;
+          details.push(`Rejected unsupported media (${msg.type}) from ${from} for ${child.name}.`);
+          continue;
+        }
+
+        let incomingText = msg.text?.body || '';
         if (msg.interactive?.button_reply) {
           incomingText = msg.interactive.button_reply.title;
         } else if (msg.interactive?.list_reply) {
@@ -116,14 +171,6 @@ export async function handleWhatsAppIncomingWebhook(payload: WhatsAppWebhookEven
 
         if (!incomingText.trim()) continue;
 
-        // Find child profile by sender phone
-        let child = globalDataStore.getChildByPhone(from);
-        if (!child) {
-          // Default to Joash or create new child
-          child = globalDataStore.getChild('child_joash') || globalDataStore.getAllChildren()[0];
-        }
-
-        const now = new Date();
         const parentMsg: ChatMessage = {
           id: msg.id || 'msg_parent_' + Date.now(),
           childId: child.id,
@@ -133,25 +180,34 @@ export async function handleWhatsAppIncomingWebhook(payload: WhatsAppWebhookEven
           timeDisplay: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
           status: 'read'
         };
-
         globalDataStore.addMessage(parentMsg);
 
-        // Process message through 5-brain engine
-        const { replyMessage, fiveBrainAnalysis } = await processCaregiverMessage(child.id, incomingText, parentMsg.id);
+        const { replyMessage, fiveBrainAnalysis } = await processCaregiverMessage(
+          child.id,
+          incomingText,
+          parentMsg.id,
+          async (resolvedChild, delayedMsg) => {
+            await sendOutboundWhatsAppMessage(resolvedChild.caregiverPhone || from, delayedMsg.text);
+          }
+        );
         repliesCount++;
 
-        // Send via WhatsApp Cloud API
         await sendOutboundWhatsAppMessage(child.caregiverPhone || from, replyMessage.text);
 
-        // If admin alert triggered, simulate SMS/WhatsApp to admin
-        if (fiveBrainAnalysis.escalationBrain.adminAlertTriggered && process.env.ADMIN_ALERT_PHONE) {
+        // Route ALL admin-needed messages to separate Admin WhatsApp contact
+        if (fiveBrainAnalysis.escalationBrain.adminAlertTriggered) {
+          const adminPhone = getAdminRoutingPhone();
           await sendOutboundWhatsAppMessage(
-            process.env.ADMIN_ALERT_PHONE,
-            `⚠️ [ALERT_ADMIN] Kinda Care Escalation Alert!\nParent: ${child.caregiverName} (${from})\nChild: ${child.name}\nMessage: "${incomingText}"`
+            adminPhone,
+            `[KINDA CARE ADMIN ROUTING]\nUrgency: ${
+              fiveBrainAnalysis.escalationBrain.urgentRedFlagTriggered ? 'URGENT RED FLAG' : 'Admin Action Required'
+            }\nParent: ${child.caregiverName} (${child.caregiverPhone})\nChild: ${child.name}\nReason: ${
+              fiveBrainAnalysis.escalationBrain.adminAlertReason || 'Follow-up required'
+            }\nCaregiver message: "${incomingText}"`
           );
         }
 
-        details.push(`Processed message from ${from} for child ${child.name}. Reply sent.`);
+        details.push(`Processed message from ${from} for ${child.name}.`);
       }
     }
   }

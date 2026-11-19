@@ -33,7 +33,12 @@ export const RAGLibraryModal: React.FC<RAGLibraryModalProps> = ({ onClose }) => 
     let match = true;
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
-      match = match && (m.title.toLowerCase().includes(q) || m.description.toLowerCase().includes(q) || m.keywords.some(k => k.toLowerCase().includes(q)));
+      match =
+        match &&
+        (m.title.toLowerCase().includes(q) ||
+          m.description.toLowerCase().includes(q) ||
+          (m.sourceFramework || '').toLowerCase().includes(q) ||
+          m.keywords.some(k => k.toLowerCase().includes(q)));
     }
     if (selectedDomain !== 'all') {
       match = match && m.domain === selectedDomain;
@@ -52,10 +57,10 @@ export const RAGLibraryModal: React.FC<RAGLibraryModalProps> = ({ onClose }) => 
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                RAG Knowledge Base: Verified Educational & Clinical Library
+                RAG Knowledge Base: Verified Educational &amp; Caregiver Support Library
               </h2>
               <p className="text-xs text-slate-500">
-                Therapist-reviewed play protocols, sensory ladders, early language acceleration, and Kenyan CBC play activities
+                Includes WHO Caregiver Skills Training (CST), Kenya DCS Disability Manual, UNICEF Caring for the Caregiver (CFC), and Home Play Guides
               </p>
             </div>
           </div>
@@ -76,13 +81,23 @@ export const RAGLibraryModal: React.FC<RAGLibraryModalProps> = ({ onClose }) => 
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search materials (e.g. red tiles, puzzle, singing, spelling)..."
+              placeholder="Search materials (e.g. WHO CST, UNICEF CFC, Kenya DCS, red tiles, singing)..."
               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
             />
           </div>
 
           <div className="flex flex-wrap gap-1 text-xs">
-            {['all', 'sensory_play', 'singing', 'motor', 'reading', 'spelling', 'drawing'].map((dom) => (
+            {[
+              'all',
+              'sensory_play',
+              'singing',
+              'motor',
+              'reading',
+              'spelling',
+              'drawing',
+              'caregiver_wellness',
+              'protection_referral'
+            ].map((dom) => (
               <button
                 key={dom}
                 type="button"
@@ -108,13 +123,13 @@ export const RAGLibraryModal: React.FC<RAGLibraryModalProps> = ({ onClose }) => 
               className="bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 shadow-2xs hover:border-amber-400 cursor-pointer flex flex-col justify-between space-y-3 transition"
             >
               <div className="space-y-2">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-2">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded">
                     {mat.domain.replace('_', ' ')} • {mat.ageRange}
                   </span>
-                  <span className="text-[10px] text-emerald-600 font-semibold flex items-center space-x-0.5">
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded font-semibold flex items-center space-x-1 shrink-0">
                     <FileCheck className="w-3 h-3" />
-                    <span>Verified</span>
+                    <span>{mat.sourceFramework || 'Verified'}</span>
                   </span>
                 </div>
 
@@ -142,11 +157,17 @@ export const RAGLibraryModal: React.FC<RAGLibraryModalProps> = ({ onClose }) => 
               <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
                 <div>
                   <span className="text-[11px] font-bold text-amber-600 uppercase">
-                    {selectedMaterial.domain} • {selectedMaterial.ageRange}
+                    {selectedMaterial.domain.replace('_', ' ')} • {selectedMaterial.ageRange}
+                    {selectedMaterial.sourceFramework ? ` • ${selectedMaterial.sourceFramework}` : ''}
                   </span>
                   <h3 className="font-bold text-base text-slate-900 dark:text-white mt-0.5">
                     {selectedMaterial.title}
                   </h3>
+                  {selectedMaterial.referralStandard && (
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-0.5">
+                      Standard: {selectedMaterial.referralStandard}
+                    </p>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -178,7 +199,7 @@ export const RAGLibraryModal: React.FC<RAGLibraryModalProps> = ({ onClose }) => 
               </div>
 
               <div className="bg-emerald-50 dark:bg-emerald-950/40 p-3 rounded-xl border border-emerald-200 dark:border-emerald-900 text-xs text-emerald-900 dark:text-emerald-200 space-y-1">
-                <strong className="block text-emerald-800 dark:text-emerald-300 font-bold">Caregiver Guidance & Encouragement:</strong>
+                <strong className="block text-emerald-800 dark:text-emerald-300 font-bold">Caregiver Guidance &amp; Encouragement:</strong>
                 <p>{selectedMaterial.caregiverGuidance}</p>
               </div>
 
